@@ -12,9 +12,11 @@ async function syncBigQueryToRedis() {
 
     // 1. Connect to Redis
     console.log('🔌 Connecting to Redis...');
+    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
     redisClient = redis.createClient({
-      url: 'redis://104.197.74.8:6379'
+      url: redisUrl
     });
+    console.log(`   Using Redis URL: ${redisUrl}`);
 
     redisClient.on('error', (err) => console.error('Redis Error:', err));
     
@@ -43,14 +45,23 @@ async function syncBigQueryToRedis() {
     const query = `
       SELECT *
       FROM \`oceanic-sky-474609-v5.lead_generation.struxure_leads\`
-      ORDER BY Timestamp DESC
     `;
 
     const startTime = Date.now();
     const [rows] = await bigquery.query(query);
     const queryTime = ((Date.now() - startTime) / 1000).toFixed(2);
 
-    console.log(`✅ Fetched ${rows.length.toLocaleString()} rows in ${queryTime}s\n`);
+    console.log(`✅ Fetched ${rows.length.toLocaleString()} rows in ${queryTime}s`);
+    
+    // Sort by timestamp DESC in JavaScript (BigQuery sorts strings wrong)
+    console.log('🔄 Sorting data by timestamp...');
+    rows.sort((a, b) => {
+      const dateA = new Date(a.Timestamp);
+      const dateB = new Date(b.Timestamp);
+      return dateB.getTime() - dateA.getTime(); // DESC order (newest first)
+    });
+    
+    console.log(`✅ Data sorted. Newest: ${rows[0]?.Timestamp}, Oldest: ${rows[rows.length - 1]?.Timestamp}\n`);
 
     // 5. Calculate data size
     const dataString = JSON.stringify(rows);

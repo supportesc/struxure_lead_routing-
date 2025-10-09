@@ -148,7 +148,7 @@ export async function getStats(filters: QueryFilters = {}): Promise<{
   stateStats: Array<{ name: string; count: number }>;
   totalLeads: number;
 }> {
-  const { where, params } = buildWhereClause(filters);
+  const { where } = buildWhereClause(filters);
 
   const query = `
     WITH filtered_data AS (
@@ -201,7 +201,6 @@ export async function getStats(filters: QueryFilters = {}): Promise<{
     
     const [results] = await bigquery.query({
       query,
-      params,
     });
 
     const row = results[0];
@@ -230,7 +229,7 @@ export async function getDealerLeads(
   const { page = 1, limit = 25 } = pagination;
   const offset = (page - 1) * limit;
 
-  const { where: baseWhere, params: baseParams } = buildWhereClause(filters);
+  const { where: baseWhere } = buildWhereClause(filters);
 
   // Add dealer filter
   const dealerCondition = `(Struxure_Dealer = @dealerName OR Deepwater_Dealer = @dealerName)`;
@@ -239,7 +238,6 @@ export async function getDealerLeads(
     : `WHERE ${dealerCondition}`;
 
   const params = {
-    ...baseParams,
     dealerName,
   };
 

@@ -21,11 +21,11 @@ export async function getRedisClient() {
   return client;
 }
 
-// Cache key for Google Sheets data
-const CACHE_KEY = 'google_sheets_data';
+// Cache key for BigQuery data
+const BIGQUERY_CACHE_KEY = 'bigquery_leads_full_cache';
 const TTL = 60 * 60 * 24; // 24 hours in seconds
 
-export async function getCachedData(key: string = CACHE_KEY) {
+export async function getCachedData(key: string = BIGQUERY_CACHE_KEY) {
   try {
     const redis = await getRedisClient();
     const cached = await redis.get(key);
@@ -55,11 +55,11 @@ export async function setCachedData(key: string, data: any, ttl: number = TTL) {
   }
 }
 
-export async function clearCache() {
+export async function clearCache(key: string = BIGQUERY_CACHE_KEY) {
   try {
     const redis = await getRedisClient();
-    await redis.del(CACHE_KEY);
-    console.log('✅ Cache cleared from Redis');
+    await redis.del(key);
+    console.log(`✅ Cache cleared from Redis (key: ${key})`);
     return true;
   } catch (error) {
     console.error('Error clearing cache:', error);

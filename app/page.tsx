@@ -1,29 +1,52 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Filter, X, Calendar, BarChart3, Users, Building, Link, Megaphone, ChevronDown, Check } from 'lucide-react';
+
+type DateRange = {
+  start: string;
+  end: string;
+};
 
 export default function Home() {
-  const [data, setData] = useState<any[]>([]);
+  const [allData, setAllData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(25);
-  const [totalCount, setTotalCount] = useState(0);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [dateFilter, setDateFilter] = useState<DateRange | null>(null);
+  const [compareDateFilter, setCompareDateFilter] = useState<DateRange | null>(null);
+  const [showCompare, setShowCompare] = useState(false);
 
   const fetchData = async () => {
     try {
       setIsLoading(true);
       setError(null);
       
-      const response = await fetch(`/api/bigquery-data?page=${currentPage}&limit=${itemsPerPage}&nocache=true`);
+      // Fetch ALL data once (will be cached in Redis)
+      const response = await fetch(`/api/bigquery-data?page=1&limit=100000`);
       const result = await response.json();
 
       if (!result.success) {
         throw new Error(result.error || 'Failed to fetch data');
       }
 
-      setData(result.data);
-      setTotalCount(result.totalCount);
+      // Sort by timestamp DESC (newest first) - BigQuery sorts strings wrong
+      const sortedData = result.data.sort((a: any, b: any) => {
+        const dateA = new Date(a.Timestamp);
+        const dateB = new Date(b.Timestamp);
+        return dateB.getTime() - dateA.getTime(); // DESC order
+      });
+
+      setAllData(sortedData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       console.error('Error fetching data:', err);
@@ -34,9 +57,289 @@ export default function Home() {
 
   useEffect(() => {
     fetchData();
-  }, [currentPage]);
+  }, []);
 
-  const totalPages = Math.ceil(totalCount / itemsPerPage);
+  const [columnFilters, setColumnFilters] = useState<{
+    routeTo: string[];
+    projectType: string[];
+    utmSource: string[];
+    campaign: string[];
+  }>({
+    routeTo: [],
+    projectType: [],
+    utmSource: [],
+    campaign: []
+  });
+
+  // Filter data by date range and column filters
+  const filteredData = useMemo(() => {
+    let filtered = allData;
+    
+    // Apply date filter
+    if (dateFilter && dateFilter.start && dateFilter.end) {
+      const startDate = new Date(dateFilter.start);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(dateFilter.end);
+      endDate.setHours(23, 59, 59, 999);
+      
+      let validCount = 0;
+      let invalidCount = 0;
+      const sampleMatches = [];
+      const sampleNonMatches = [];
+      
+      filtered = filtered.filter(item => {
+        // Parse timestamp - format is "M/D/YYYY H:mm:ss"
+        let itemDate;
+        if (item.Timestamp) {
+          const timestamp = item.Timestamp.toString();
+          // Create date and normalize to start of day for comparison
+          itemDate = new Date(timestamp);
+          
+          // If date is valid, normalize to local timezone date only (ignore time)
+          if (!isNaN(itemDate.getTime())) {
+            // Get just the date part in local timezone
+            const year = itemDate.getFullYear();
+            const month = itemDate.getMonth();
+            const day = itemDate.getDate();
+            itemDate = new Date(year, month, day);
+          }
+        }
+        
+        // If invalid date, skip this item
+        if (!itemDate || isNaN(itemDate.getTime())) {
+          invalidCount++;
+          return false;
+        }
+        
+        const inRange = itemDate >= startDate && itemDate <= endDate;
+        
+        // Collect samples for debugging
+        if (inRange && sampleMatches.length < 3) {
+          sampleMatches.push({
+            timestamp: item.Timestamp,
+            parsed: itemDate.toLocaleDateString(),
+            itemDate: itemDate.getTime(),
+            startDate: startDate.getTime(),
+            endDate: endDate.getTime()
+          });
+        } else if (!inRange && sampleNonMatches.length < 3) {
+          sampleNonMatches.push({
+            timestamp: item.Timestamp,
+            parsed: itemDate.toLocaleDateString(),
+            itemDate: itemDate.getTime(),
+            startDate: startDate.getTime(),
+            endDate: endDate.getTime(),
+            tooOld: itemDate < startDate,
+            tooNew: itemDate > endDate
+          });
+        }
+        
+        if (inRange) validCount++;
+        
+        return inRange;
+      });
+    }
+    
+    // Apply Route To filter
+    if (columnFilters.routeTo.length > 0) {
+      filtered = filtered.filter(item => 
+        columnFilters.routeTo.includes(item.Route_To)
+      );
+    }
+    
+    // Apply Project Type filter
+    if (columnFilters.projectType.length > 0) {
+      filtered = filtered.filter(item => 
+        columnFilters.projectType.includes(item.Project_Type)
+      );
+    }
+    
+    // Apply UTM Source filter
+    if (columnFilters.utmSource.length > 0) {
+      filtered = filtered.filter(item => 
+        columnFilters.utmSource.includes(item.UTM_Source)
+      );
+    }
+    
+    // Apply Campaign filter
+    if (columnFilters.campaign.length > 0) {
+      filtered = filtered.filter(item => 
+        columnFilters.campaign.includes(item.Campaign)
+      );
+    }
+    
+    return filtered;
+  }, [allData, dateFilter, columnFilters]);
+
+  // Filter compare data
+  const compareData = useMemo(() => {
+    if (!compareDateFilter || !compareDateFilter.start || !compareDateFilter.end) return null;
+    
+    const startDate = new Date(compareDateFilter.start);
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(compareDateFilter.end);
+    endDate.setHours(23, 59, 59, 999);
+    
+    return allData.filter(item => {
+      let itemDate;
+      if (item.Timestamp) {
+        const timestamp = item.Timestamp.toString();
+        itemDate = new Date(timestamp);
+        
+        // Normalize to date only (ignore time)
+        if (!isNaN(itemDate.getTime())) {
+          const year = itemDate.getFullYear();
+          const month = itemDate.getMonth();
+          const day = itemDate.getDate();
+          itemDate = new Date(year, month, day);
+        }
+      }
+      
+      if (!itemDate || isNaN(itemDate.getTime())) {
+        return false;
+      }
+      
+      return itemDate >= startDate && itemDate <= endDate;
+    });
+  }, [allData, compareDateFilter]);
+
+  // Calculate statistics
+  const stats = useMemo(() => {
+    const struxureLeads = filteredData.filter(item => item.Route_To === 'Struxure').length;
+    const deepwaterLeads = filteredData.filter(item => item.Route_To === 'Deep Water').length;
+    const residentialLeads = filteredData.filter(item => item.Project_Type === 'Residential').length;
+    const commercialLeads = filteredData.filter(item => item.Project_Type === 'Commercial').length;
+    
+    // UTM Source stats
+    const organicLeads = filteredData.filter(item => 
+      item.UTM_Source?.toLowerCase().includes('organic') || 
+      item.UTM_Source?.toLowerCase().includes('direct')
+    ).length;
+    const facebookLeads = filteredData.filter(item => 
+      item.UTM_Source?.toLowerCase().includes('facebook') || 
+      item.UTM_Source?.toLowerCase().includes('fb')
+    ).length;
+    const googleLeads = filteredData.filter(item => 
+      item.UTM_Source?.toLowerCase().includes('google')
+    ).length;
+    const youtubeLeads = filteredData.filter(item => 
+      item.UTM_Source?.toLowerCase().includes('youtube')
+    ).length;
+    
+    return {
+      struxure: struxureLeads,
+      deepwater: deepwaterLeads,
+      residential: residentialLeads,
+      commercial: commercialLeads,
+      organic: organicLeads,
+      facebook: facebookLeads,
+      google: googleLeads,
+      youtube: youtubeLeads,
+      total: filteredData.length
+    };
+  }, [filteredData]);
+
+  // Calculate compare statistics
+  const compareStats = useMemo(() => {
+    if (!compareData) return null;
+    
+    const struxureLeads = compareData.filter(item => item.Route_To === 'Struxure').length;
+    const deepwaterLeads = compareData.filter(item => item.Route_To === 'Deep Water').length;
+    const residentialLeads = compareData.filter(item => item.Project_Type === 'Residential').length;
+    const commercialLeads = compareData.filter(item => item.Project_Type === 'Commercial').length;
+    
+    const organicLeads = compareData.filter(item => 
+      item.UTM_Source?.toLowerCase().includes('organic') || 
+      item.UTM_Source?.toLowerCase().includes('direct')
+    ).length;
+    const facebookLeads = compareData.filter(item => 
+      item.UTM_Source?.toLowerCase().includes('facebook') || 
+      item.UTM_Source?.toLowerCase().includes('fb')
+    ).length;
+    const googleLeads = compareData.filter(item => 
+      item.UTM_Source?.toLowerCase().includes('google')
+    ).length;
+    const youtubeLeads = compareData.filter(item => 
+      item.UTM_Source?.toLowerCase().includes('youtube')
+    ).length;
+    
+    return {
+      struxure: struxureLeads,
+      deepwater: deepwaterLeads,
+      residential: residentialLeads,
+      commercial: commercialLeads,
+      organic: organicLeads,
+      facebook: facebookLeads,
+      google: googleLeads,
+      youtube: youtubeLeads,
+      total: compareData.length
+    };
+  }, [compareData]);
+
+  // Paginate filtered data
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const paginated = filteredData.slice(startIndex, endIndex);
+    
+    
+    return paginated;
+  }, [filteredData, currentPage, itemsPerPage, dateFilter]);
+
+  // Reset to page 1 when filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [dateFilter, itemsPerPage]);
+
+  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+
+  const handleClearDateFilter = () => {
+    setDateFilter(null);
+    setCompareDateFilter(null);
+    setShowCompare(false);
+  };
+
+  const handleClearAllFilters = () => {
+    setDateFilter(null);
+    setCompareDateFilter(null);
+    setShowCompare(false);
+    setColumnFilters({
+      routeTo: [],
+      projectType: [],
+      utmSource: [],
+      campaign: []
+    });
+  };
+
+  // Get unique values for filters
+  const filterOptions = useMemo(() => {
+    return {
+      routeTo: Array.from(new Set(allData.map(item => item.Route_To).filter(Boolean))).sort(),
+      projectType: Array.from(new Set(allData.map(item => item.Project_Type).filter(Boolean))).sort(),
+      utmSource: Array.from(new Set(allData.map(item => item.UTM_Source).filter(Boolean))).sort(),
+      campaign: Array.from(new Set(allData.map(item => item.Campaign).filter(Boolean))).sort().slice(0, 20) // Limit to top 20
+    };
+  }, [allData]);
+
+  const hasActiveFilters = dateFilter || columnFilters.routeTo.length > 0 || columnFilters.projectType.length > 0 || 
+    columnFilters.utmSource.length > 0 || columnFilters.campaign.length > 0;
+
+  const applyPresetFilter = (days: number) => {
+    const end = new Date();
+    end.setDate(end.getDate() - 1); // End yesterday, not today
+    const start = new Date();
+    start.setDate(start.getDate() - days); // Go back 'days' from today
+    
+    setDateFilter({
+      start: start.toISOString().split('T')[0],
+      end: end.toISOString().split('T')[0],
+    });
+  };
+
+  const calculateChange = (current: number, previous: number) => {
+    if (previous === 0) return current > 0 ? 100 : 0;
+    return ((current - previous) / previous) * 100;
+  };
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 py-12 px-4">
@@ -49,8 +352,721 @@ export default function Home() {
             </span>
           </h1>
           <p className="text-gray-400">
-            Showing {data.length} of {totalCount.toLocaleString()} total leads
+            {dateFilter ? `Filtered: ${stats.total.toLocaleString()} of ${allData.length.toLocaleString()} total leads` : `${allData.length.toLocaleString()} total leads`}
           </p>
+          {allData.length > 0 && (
+            <div className="mt-2 text-xs text-gray-500">
+              <details className="inline-block">
+                <summary className="cursor-pointer hover:text-gray-400">Debug Info</summary>
+                <div className="mt-2 bg-slate-800/50 rounded p-2 text-left max-w-2xl mx-auto">
+                  <p><strong>Sample Timestamp:</strong> {allData[0]?.Timestamp}</p>
+                  <p><strong>Type:</strong> {typeof allData[0]?.Timestamp}</p>
+                  <p><strong>Parsed:</strong> {new Date(allData[0]?.Timestamp).toISOString()}</p>
+                  <p><strong>Date Range:</strong> {
+                    (() => {
+                      const dates = allData.map(d => new Date(d.Timestamp)).filter(d => !isNaN(d.getTime()));
+                      if (dates.length === 0) return 'No valid dates';
+                      const min = new Date(Math.min(...dates.map(d => d.getTime())));
+                      const max = new Date(Math.max(...dates.map(d => d.getTime())));
+                      return `${min.toLocaleDateString()} to ${max.toLocaleDateString()}`;
+                    })()
+                  }</p>
+                  <a href="/api/debug-data" target="_blank" className="text-cyan-400 hover:underline">
+                    View Full Debug Data →
+                  </a>
+                </div>
+              </details>
+            </div>
+          )}
+        </div>
+
+        {/* Date Filter */}
+        <Card className="mb-6">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-cyan-400" />
+                Date Filter
+              </CardTitle>
+              {dateFilter && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleClearDateFilter}
+                  className="flex items-center gap-2"
+                >
+                  <X className="w-4 h-4" />
+                  Clear Date Filter
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {/* Quick Presets */}
+            <div className="flex items-center justify-center gap-3 mb-6 flex-wrap">
+              <span className="text-sm text-muted-foreground font-medium">Quick Select:</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => applyPresetFilter(7)}
+                className="flex items-center gap-2"
+              >
+                Last 7 Days
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => applyPresetFilter(30)}
+                className="flex items-center gap-2"
+              >
+                Last 30 Days
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => applyPresetFilter(60)}
+                className="flex items-center gap-2"
+              >
+                Last 60 Days
+              </Button>
+            </div>
+
+            {/* Custom Date Range */}
+            <div className="flex items-center justify-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="start-date" className="text-sm text-muted-foreground">From:</Label>
+                <Input
+                  id="start-date"
+                  type="date"
+                  value={dateFilter?.start || ''}
+                  onChange={(e) => setDateFilter(prev => ({ start: e.target.value, end: prev?.end || '' }))}
+                  className="w-auto"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="end-date" className="text-sm text-muted-foreground">To:</Label>
+                <Input
+                  id="end-date"
+                  type="date"
+                  value={dateFilter?.end || ''}
+                  onChange={(e) => setDateFilter(prev => ({ start: prev?.start || '', end: e.target.value }))}
+                  className="w-auto"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCompare(!showCompare)}
+                className="flex items-center gap-2"
+              >
+                <BarChart3 className="w-4 h-4" />
+                {showCompare ? 'Hide Compare' : 'Compare Periods'}
+              </Button>
+            {dateFilter && (dateFilter.start || dateFilter.end) && (
+              <button
+                onClick={handleClearDateFilter}
+                className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Clear All
+              </button>
+            )}
+          </div>
+
+          {/* Compare Date Range */}
+          {showCompare && (
+            <div className="mt-4 pt-4 border-t border-purple-500/20">
+              <div className="flex items-center justify-center gap-4 flex-wrap">
+                <span className="text-sm text-purple-300 font-semibold">Compare Period:</span>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-400">From:</label>
+                  <input
+                    type="date"
+                    value={compareDateFilter?.start || ''}
+                    onChange={(e) => setCompareDateFilter(prev => ({ start: e.target.value, end: prev?.end || '' }))}
+                    className="px-3 py-2 bg-purple-900/20 border border-purple-500/30 rounded-lg text-white text-sm focus:border-purple-500 focus:outline-none"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-400">To:</label>
+                  <input
+                    type="date"
+                    value={compareDateFilter?.end || ''}
+                    onChange={(e) => setCompareDateFilter(prev => ({ start: prev?.start || '', end: e.target.value }))}
+                    className="px-3 py-2 bg-purple-900/20 border border-purple-500/30 rounded-lg text-white text-sm focus:border-purple-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          </CardContent>
+        </Card>
+
+        {/* Column Filters */}
+        <Card className="mb-6">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Filter className="w-5 h-5 text-cyan-400" />
+                Column Filters
+              </CardTitle>
+              {hasActiveFilters && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleClearAllFilters}
+                  className="flex items-center gap-2"
+                >
+                  <X className="w-4 h-4" />
+                  Clear All Filters
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Route To Filter */}
+            <div className="space-y-3">
+              <Label className="flex items-center gap-2 text-sm font-medium">
+                <Users className="w-4 h-4 text-blue-400" />
+                Route To
+                {columnFilters.routeTo.length > 0 && (
+                  <Badge variant="secondary" className="bg-blue-500/20 text-blue-300">
+                    {columnFilters.routeTo.length}
+                  </Badge>
+                )}
+              </Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-between">
+                    {columnFilters.routeTo.length > 0 
+                      ? `${columnFilters.routeTo.length} selected` 
+                      : "Select Route To"}
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[300px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search route..." />
+                    <CommandList>
+                      <CommandEmpty>No route found.</CommandEmpty>
+                      <CommandGroup>
+                        {filterOptions.routeTo.map(option => {
+                          const count = allData.filter(item => item.Route_To === option).length;
+                          const isSelected = columnFilters.routeTo.includes(option);
+                          return (
+                            <CommandItem
+                              key={option}
+                              onSelect={() => {
+                                if (isSelected) {
+                                  setColumnFilters(prev => ({ ...prev, routeTo: prev.routeTo.filter(item => item !== option) }));
+                                } else {
+                                  setColumnFilters(prev => ({ ...prev, routeTo: [...prev.routeTo, option] }));
+                                }
+                              }}
+                            >
+                              <div className="flex items-center gap-2 flex-1">
+                                <Checkbox
+                                  checked={isSelected}
+                                  className="pointer-events-none"
+                                />
+                                <span className="flex-1">{option}</span>
+                                <Badge variant="outline" className="text-xs">
+                                  {count.toLocaleString()}
+                                </Badge>
+                              </div>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Project Type Filter */}
+            <div className="space-y-3">
+              <Label className="flex items-center gap-2 text-sm font-medium">
+                <Building className="w-4 h-4 text-green-400" />
+                Project Type
+                {columnFilters.projectType.length > 0 && (
+                  <Badge variant="secondary" className="bg-green-500/20 text-green-300">
+                    {columnFilters.projectType.length}
+                  </Badge>
+                )}
+              </Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-between">
+                    {columnFilters.projectType.length > 0 
+                      ? `${columnFilters.projectType.length} selected` 
+                      : "Select Project Type"}
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[300px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search project type..." />
+                    <CommandList>
+                      <CommandEmpty>No project type found.</CommandEmpty>
+                      <CommandGroup>
+                        {filterOptions.projectType.map(option => {
+                          const count = allData.filter(item => item.Project_Type === option).length;
+                          const isSelected = columnFilters.projectType.includes(option);
+                          return (
+                            <CommandItem
+                              key={option}
+                              onSelect={() => {
+                                if (isSelected) {
+                                  setColumnFilters(prev => ({ ...prev, projectType: prev.projectType.filter(item => item !== option) }));
+                                } else {
+                                  setColumnFilters(prev => ({ ...prev, projectType: [...prev.projectType, option] }));
+                                }
+                              }}
+                            >
+                              <div className="flex items-center gap-2 flex-1">
+                                <Checkbox
+                                  checked={isSelected}
+                                  className="pointer-events-none"
+                                />
+                                <span className="flex-1">{option}</span>
+                                <Badge variant="outline" className="text-xs">
+                                  {count.toLocaleString()}
+                                </Badge>
+                              </div>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* UTM Source Filter */}
+            <div className="space-y-3">
+              <Label className="flex items-center gap-2 text-sm font-medium">
+                <Link className="w-4 h-4 text-purple-400" />
+                UTM Source
+                {columnFilters.utmSource.length > 0 && (
+                  <Badge variant="secondary" className="bg-purple-500/20 text-purple-300">
+                    {columnFilters.utmSource.length}
+                  </Badge>
+                )}
+              </Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-between">
+                    {columnFilters.utmSource.length > 0 
+                      ? `${columnFilters.utmSource.length} selected` 
+                      : "Select UTM Source"}
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[300px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search UTM source..." />
+                    <CommandList>
+                      <CommandEmpty>No UTM source found.</CommandEmpty>
+                      <CommandGroup>
+                        {filterOptions.utmSource.map(option => {
+                          const count = allData.filter(item => item.UTM_Source === option).length;
+                          const isSelected = columnFilters.utmSource.includes(option);
+                          return (
+                            <CommandItem
+                              key={option}
+                              onSelect={() => {
+                                if (isSelected) {
+                                  setColumnFilters(prev => ({ ...prev, utmSource: prev.utmSource.filter(item => item !== option) }));
+                                } else {
+                                  setColumnFilters(prev => ({ ...prev, utmSource: [...prev.utmSource, option] }));
+                                }
+                              }}
+                            >
+                              <div className="flex items-center gap-2 flex-1">
+                                <Checkbox
+                                  checked={isSelected}
+                                  className="pointer-events-none"
+                                />
+                                <span className="flex-1">{option}</span>
+                                <Badge variant="outline" className="text-xs">
+                                  {count.toLocaleString()}
+                                </Badge>
+                              </div>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Campaign Filter */}
+            <div className="space-y-3">
+              <Label className="flex items-center gap-2 text-sm font-medium">
+                <Megaphone className="w-4 h-4 text-orange-400" />
+                Campaign (Top 20)
+                {columnFilters.campaign.length > 0 && (
+                  <Badge variant="secondary" className="bg-orange-500/20 text-orange-300">
+                    {columnFilters.campaign.length}
+                  </Badge>
+                )}
+              </Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-between">
+                    {columnFilters.campaign.length > 0 
+                      ? `${columnFilters.campaign.length} selected` 
+                      : "Select Campaign"}
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[300px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search campaign..." />
+                    <CommandList>
+                      <CommandEmpty>No campaign found.</CommandEmpty>
+                      <CommandGroup>
+                        {filterOptions.campaign.map(option => {
+                          const count = allData.filter(item => item.Campaign === option).length;
+                          const isSelected = columnFilters.campaign.includes(option);
+                          return (
+                            <CommandItem
+                              key={option}
+                              onSelect={() => {
+                                if (isSelected) {
+                                  setColumnFilters(prev => ({ ...prev, campaign: prev.campaign.filter(item => item !== option) }));
+                                } else {
+                                  setColumnFilters(prev => ({ ...prev, campaign: [...prev.campaign, option] }));
+                                }
+                              }}
+                            >
+                              <div className="flex items-center gap-2 flex-1">
+                                <Checkbox
+                                  checked={isSelected}
+                                  className="pointer-events-none"
+                                />
+                                <span className="flex-1 truncate" title={option}>{option}</span>
+                                <Badge variant="outline" className="text-xs">
+                                  {count.toLocaleString()}
+                                </Badge>
+                              </div>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+
+          {/* Active Filters Display */}
+          {hasActiveFilters && (
+            <div className="mt-6 pt-6 border-t">
+              <div className="flex items-center gap-3 mb-4">
+                <Filter className="w-5 h-5 text-muted-foreground" />
+                <h4 className="text-sm font-medium text-foreground">Active Filters</h4>
+                <Badge variant="secondary">
+                  {columnFilters.routeTo.length + columnFilters.projectType.length + columnFilters.utmSource.length + columnFilters.campaign.length} selected
+                </Badge>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {columnFilters.routeTo.map(filter => (
+                  <Badge key={filter} variant="secondary" className="bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition-colors">
+                    <Users className="w-3 h-3 mr-1" />
+                    Route: {filter}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setColumnFilters(prev => ({ ...prev, routeTo: prev.routeTo.filter(f => f !== filter) }))}
+                      className="ml-2 h-auto p-0 hover:bg-transparent"
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </Badge>
+                ))}
+                {columnFilters.projectType.map(filter => (
+                  <Badge key={filter} variant="secondary" className="bg-green-500/20 text-green-300 hover:bg-green-500/30 transition-colors">
+                    <Building className="w-3 h-3 mr-1" />
+                    Type: {filter}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setColumnFilters(prev => ({ ...prev, projectType: prev.projectType.filter(f => f !== filter) }))}
+                      className="ml-2 h-auto p-0 hover:bg-transparent"
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </Badge>
+                ))}
+                {columnFilters.utmSource.map(filter => (
+                  <Badge key={filter} variant="secondary" className="bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors">
+                    <Link className="w-3 h-3 mr-1" />
+                    Source: {filter}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setColumnFilters(prev => ({ ...prev, utmSource: prev.utmSource.filter(f => f !== filter) }))}
+                      className="ml-2 h-auto p-0 hover:bg-transparent"
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </Badge>
+                ))}
+                {columnFilters.campaign.map(filter => (
+                  <Badge key={filter} variant="secondary" className="bg-orange-500/20 text-orange-300 hover:bg-orange-500/30 transition-colors">
+                    <Megaphone className="w-3 h-3 mr-1" />
+                    Campaign: {filter}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setColumnFilters(prev => ({ ...prev, campaign: prev.campaign.filter(f => f !== filter) }))}
+                      className="ml-2 h-auto p-0 hover:bg-transparent"
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+          </CardContent>
+        </Card>
+
+        {/* Comparison Banner */}
+        {compareStats && (
+          <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4 mb-6">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <span className="text-purple-300 font-semibold">Comparison Mode Active</span>
+              </div>
+              <div className="text-sm text-purple-300">
+                Current: <span className="font-bold">{stats.total}</span> leads vs 
+                Previous: <span className="font-bold">{compareStats.total}</span> leads
+                <span className={`ml-2 font-bold ${
+                  stats.total > compareStats.total ? 'text-green-400' : 'text-red-400'
+                }`}>
+                  ({stats.total > compareStats.total ? '+' : ''}{calculateChange(stats.total, compareStats.total).toFixed(1)}%)
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Statistics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          {/* Total Leads */}
+          <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm uppercase tracking-wider">Total Leads</p>
+                <p className="text-3xl font-bold text-white mt-2">{stats.total.toLocaleString()}</p>
+                {compareStats && (
+                  <p className={`text-sm mt-1 font-semibold ${
+                    stats.total > compareStats.total ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {stats.total > compareStats.total ? '↑' : '↓'} {Math.abs(calculateChange(stats.total, compareStats.total)).toFixed(1)}%
+                  </p>
+                )}
+              </div>
+              <div className="bg-cyan-500/20 p-3 rounded-lg">
+                <svg className="w-8 h-8 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          {/* Struxure Leads */}
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm uppercase tracking-wider">Struxure Leads</p>
+                <p className="text-3xl font-bold text-blue-400 mt-2">{stats.struxure.toLocaleString()}</p>
+                <p className="text-gray-500 text-xs mt-1">
+                  {stats.total > 0 ? ((stats.struxure / stats.total) * 100).toFixed(1) : 0}%
+                  {compareStats && (
+                    <span className={`ml-2 font-semibold ${
+                      stats.struxure > compareStats.struxure ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {stats.struxure > compareStats.struxure ? '↑' : '↓'} {Math.abs(calculateChange(stats.struxure, compareStats.struxure)).toFixed(1)}%
+                    </span>
+                  )}
+                </p>
+              </div>
+              <div className="bg-blue-500/20 p-3 rounded-lg">
+                <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          {/* Deepwater Leads */}
+          <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm uppercase tracking-wider">Deepwater Leads</p>
+                <p className="text-3xl font-bold text-purple-400 mt-2">{stats.deepwater.toLocaleString()}</p>
+                <p className="text-gray-500 text-xs mt-1">
+                  {stats.total > 0 ? ((stats.deepwater / stats.total) * 100).toFixed(1) : 0}%
+                  {compareStats && (
+                    <span className={`ml-2 font-semibold ${
+                      stats.deepwater > compareStats.deepwater ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {stats.deepwater > compareStats.deepwater ? '↑' : '↓'} {Math.abs(calculateChange(stats.deepwater, compareStats.deepwater)).toFixed(1)}%
+                    </span>
+                  )}
+                </p>
+              </div>
+              <div className="bg-purple-500/20 p-3 rounded-lg">
+                <svg className="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          {/* Project Type */}
+          <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-6">
+            <div>
+              <p className="text-gray-400 text-sm uppercase tracking-wider mb-3">Project Type</p>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-300">Residential</span>
+                  <div className="text-right">
+                    <span className="text-lg font-bold text-green-400">{stats.residential.toLocaleString()}</span>
+                    {compareStats && (
+                      <span className={`ml-2 text-xs font-semibold ${
+                        stats.residential > compareStats.residential ? 'text-green-400' : 'text-red-400'
+                      }`}>
+                        {stats.residential > compareStats.residential ? '↑' : '↓'}{Math.abs(calculateChange(stats.residential, compareStats.residential)).toFixed(0)}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-300">Commercial</span>
+                  <div className="text-right">
+                    <span className="text-lg font-bold text-orange-400">{stats.commercial.toLocaleString()}</span>
+                    {compareStats && (
+                      <span className={`ml-2 text-xs font-semibold ${
+                        stats.commercial > compareStats.commercial ? 'text-green-400' : 'text-red-400'
+                      }`}>
+                        {stats.commercial > compareStats.commercial ? '↑' : '↓'}{Math.abs(calculateChange(stats.commercial, compareStats.commercial)).toFixed(0)}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* UTM Source Statistics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          {/* Organic/Direct */}
+          <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm uppercase tracking-wider">Organic/Direct</p>
+                <p className="text-3xl font-bold text-cyan-400 mt-2">{stats.organic.toLocaleString()}</p>
+                {compareStats && (
+                  <p className={`text-sm mt-1 font-semibold ${
+                    stats.organic > compareStats.organic ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {stats.organic > compareStats.organic ? '↑' : '↓'} {Math.abs(calculateChange(stats.organic, compareStats.organic)).toFixed(1)}%
+                  </p>
+                )}
+              </div>
+              <div className="bg-cyan-500/20 p-3 rounded-lg">
+                <svg className="w-8 h-8 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          {/* Facebook */}
+          <div className="bg-pink-500/10 border border-pink-500/30 rounded-xl p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm uppercase tracking-wider">Facebook</p>
+                <p className="text-3xl font-bold text-pink-400 mt-2">{stats.facebook.toLocaleString()}</p>
+                {compareStats && (
+                  <p className={`text-sm mt-1 font-semibold ${
+                    stats.facebook > compareStats.facebook ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {stats.facebook > compareStats.facebook ? '↑' : '↓'} {Math.abs(calculateChange(stats.facebook, compareStats.facebook)).toFixed(1)}%
+                  </p>
+                )}
+              </div>
+              <div className="bg-pink-500/20 p-3 rounded-lg">
+                <svg className="w-8 h-8 text-pink-400" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          {/* Google */}
+          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm uppercase tracking-wider">Google</p>
+                <p className="text-3xl font-bold text-yellow-400 mt-2">{stats.google.toLocaleString()}</p>
+                {compareStats && (
+                  <p className={`text-sm mt-1 font-semibold ${
+                    stats.google > compareStats.google ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {stats.google > compareStats.google ? '↑' : '↓'} {Math.abs(calculateChange(stats.google, compareStats.google)).toFixed(1)}%
+                  </p>
+                )}
+              </div>
+              <div className="bg-yellow-500/20 p-3 rounded-lg">
+                <svg className="w-8 h-8 text-yellow-400" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          {/* YouTube */}
+          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm uppercase tracking-wider">YouTube</p>
+                <p className="text-3xl font-bold text-red-400 mt-2">{stats.youtube.toLocaleString()}</p>
+                {compareStats && (
+                  <p className={`text-sm mt-1 font-semibold ${
+                    stats.youtube > compareStats.youtube ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {stats.youtube > compareStats.youtube ? '↑' : '↓'} {Math.abs(calculateChange(stats.youtube, compareStats.youtube)).toFixed(1)}%
+                  </p>
+                )}
+              </div>
+              <div className="bg-red-500/20 p-3 rounded-lg">
+                <svg className="w-8 h-8 text-red-400" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                </svg>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Error Display */}
@@ -69,7 +1085,7 @@ export default function Home() {
         )}
 
         {/* Table */}
-        {!isLoading && data.length > 0 && (
+        {!isLoading && paginatedData.length > 0 && (
           <div className="bg-slate-800/50 rounded-lg border border-slate-700 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -85,7 +1101,7 @@ export default function Home() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700">
-                  {data.map((row, idx) => (
+                  {paginatedData.map((row, idx) => (
                     <tr key={idx} className="hover:bg-slate-700/30 transition-colors">
                       <td className="px-4 py-3 text-sm text-gray-300">{row.Timestamp}</td>
                       <td className="px-4 py-3 text-sm text-gray-300">{row.First_Name} {row.Last_Name}</td>
@@ -101,9 +1117,21 @@ export default function Home() {
             </div>
 
             {/* Pagination Controls */}
-            <div className="bg-slate-700/30 px-6 py-4 flex items-center justify-between border-t border-slate-700">
+            <div className="bg-slate-700/30 px-6 py-4 flex items-center justify-between border-t border-slate-700 flex-wrap gap-4">
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-400">Rows per page:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                  className="px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white text-sm focus:border-cyan-500 focus:outline-none cursor-pointer"
+                >
+                  <option value={25}>25</option>
+                  <option value={250}>250</option>
+                  <option value={500}>500</option>
+                </select>
+              </div>
               <div className="text-sm text-gray-400">
-                Page {currentPage} of {totalPages}
+                Page {currentPage} of {totalPages} ({filteredData.length.toLocaleString()} total)
               </div>
               <div className="flex gap-2">
                 <button
@@ -126,9 +1154,20 @@ export default function Home() {
         )}
 
         {/* No Data */}
-        {!isLoading && data.length === 0 && !error && (
-          <div className="text-center py-12 text-gray-400">
-            No data available
+        {!isLoading && paginatedData.length === 0 && !error && (
+          <div className="text-center py-12">
+            <div className="text-gray-400 text-lg mb-2">No data found</div>
+            <div className="text-gray-500 text-sm">
+              {dateFilter ? 'Try adjusting your date filter or clear filters to see all data.' : 'No leads data available.'}
+            </div>
+            {dateFilter && (
+              <button
+                onClick={handleClearDateFilter}
+                className="mt-4 px-4 py-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-300 rounded-lg text-sm font-medium transition-colors"
+              >
+                Clear Date Filter
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -26,11 +26,19 @@ async function fetchAndCacheFromBigQuery() {
   const query = `
     SELECT *
     FROM \`oceanic-sky-474609-v5.lead_generation.struxure_leads\`
-    ORDER BY Timestamp DESC
   `;
 
   const [rows] = await bigquery.query(query);
   console.log(`✅ Fetched ${rows.length.toLocaleString()} rows from BigQuery`);
+
+  // Sort by timestamp DESC (BigQuery sorts strings alphabetically, not chronologically)
+  rows.sort((a: any, b: any) => {
+    const dateA = new Date(a.Timestamp);
+    const dateB = new Date(b.Timestamp);
+    return dateB.getTime() - dateA.getTime(); // DESC order (newest first)
+  });
+  
+  console.log(`✅ Data sorted. Newest: ${rows[0]?.Timestamp}`);
 
   // Cache for 24 hours
   await setCachedData(FULL_CACHE_KEY, rows, 60 * 60 * 24);
@@ -62,17 +70,21 @@ async function getAllData(): Promise<LeadData[]> {
  * 
  * Query parameters:
  * - page: Page number (default: 1)
- * - limit: Items per page (default: 25, max: 500)
+ * - limit: Items per page (default: 25, max: 500, unlimited if >= 100000)
  * - nocache: Skip cache (default: false)
  */
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
-    const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || '25', 10)), 500);
+    const requestedLimit = parseInt(searchParams.get('limit') || '25', 10);
     const noCache = searchParams.get('nocache') === 'true';
 
-    console.log('📥 BigQuery API Request:', { page, limit, noCache });
+    // For filtering purposes, allow unlimited data
+    // For pagination, cap at 500
+    const limit = requestedLimit >= 100000 ? requestedLimit : Math.min(Math.max(1, requestedLimit), 500);
+
+    console.log('📥 BigQuery API Request:', { page, limit, requestedLimit, noCache });
 
     // Get all data (from Redis cache or BigQuery)
     let allData: LeadData[];
