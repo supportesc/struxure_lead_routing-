@@ -1,81 +1,66 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { queryLeads, QueryFilters, PaginationOptions } from '@/lib/bigquery';
+import { LeadData } from '@/lib/bigquery';
 import { getCachedData, setCachedData } from '@/lib/redis';
-import crypto from 'crypto';
+
+const FULL_CACHE_KEY = 'bigquery_leads_full_cache';
 
 /**
- * Parse query parameters into filters
+ * Query all data from BigQuery and cache it
  */
-function parseFilters(searchParams: URLSearchParams): QueryFilters {
-  const filters: QueryFilters = {};
+async function fetchAndCacheFromBigQuery() {
+  const { BigQuery } = await import('@google-cloud/bigquery');
+  const fs = await import('fs');
+  const path = await import('path');
+  
+  console.log('📥 Cache miss - fetching ALL data from BigQuery...');
+  
+  const credentialsPath = path.join(process.cwd(), 'bigquery-credentials.json');
+  const credentialsContent = fs.readFileSync(credentialsPath, 'utf8');
+  const credentials = JSON.parse(credentialsContent);
 
-  // Date range
-  const dateFrom = searchParams.get('dateFrom');
-  const dateTo = searchParams.get('dateTo');
-  if (dateFrom) filters.dateFrom = dateFrom;
-  if (dateTo) filters.dateTo = dateTo;
+  const bigquery = new BigQuery({
+    projectId: 'oceanic-sky-474609-v5',
+    credentials,
+  });
 
-  // Array filters (support multiple values)
-  const routeTo = searchParams.getAll('routeTo');
-  if (routeTo.length > 0) filters.routeTo = routeTo;
+  const query = `
+    SELECT *
+    FROM \`oceanic-sky-474609-v5.lead_generation.struxure_leads\`
+    ORDER BY Timestamp DESC
+  `;
 
-  const projectType = searchParams.getAll('projectType');
-  if (projectType.length > 0) filters.projectType = projectType;
+  const [rows] = await bigquery.query(query);
+  console.log(`✅ Fetched ${rows.length.toLocaleString()} rows from BigQuery`);
 
-  const utmSource = searchParams.getAll('utmSource');
-  if (utmSource.length > 0) filters.utmSource = utmSource;
-
-  const campaign = searchParams.getAll('campaign');
-  if (campaign.length > 0) filters.campaign = campaign;
-
-  const state = searchParams.getAll('state');
-  if (state.length > 0) filters.state = state;
-
-  // Single value filters
-  const struxureDealer = searchParams.get('struxureDealer');
-  if (struxureDealer) filters.struxureDealer = struxureDealer;
-
-  const deepwaterDealer = searchParams.get('deepwaterDealer');
-  if (deepwaterDealer) filters.deepwaterDealer = deepwaterDealer;
-
-  return filters;
+  // Cache for 24 hours
+  await setCachedData(FULL_CACHE_KEY, rows, 60 * 60 * 24);
+  
+  return rows as LeadData[];
 }
 
 /**
- * Parse pagination parameters
+ * Get all data (from Redis or BigQuery)
  */
-function parsePagination(searchParams: URLSearchParams): PaginationOptions {
-  const page = parseInt(searchParams.get('page') || '1', 10);
-  const limit = parseInt(searchParams.get('limit') || '25', 10);
+async function getAllData(): Promise<LeadData[]> {
+  // Try Redis first
+  try {
+    const cached = await getCachedData(FULL_CACHE_KEY);
+    if (cached && Array.isArray(cached)) {
+      console.log(`✅ Using cached data from Redis (${cached.length.toLocaleString()} rows)`);
+      return cached as LeadData[];
+    }
+  } catch (cacheError) {
+    console.warn('⚠️ Redis read error, falling back to BigQuery:', cacheError);
+  }
 
-  return {
-    page: Math.max(1, page),
-    limit: Math.min(Math.max(1, limit), 500), // Cap at 500 items per page
-  };
-}
-
-/**
- * Generate cache key based on query parameters
- */
-function generateCacheKey(filters: QueryFilters, pagination: PaginationOptions): string {
-  const data = JSON.stringify({ filters, pagination });
-  const hash = crypto.createHash('md5').update(data).digest('hex');
-  return `bq:leads:${hash}`;
+  // Fallback to BigQuery
+  return await fetchAndCacheFromBigQuery();
 }
 
 /**
  * GET /api/bigquery-data
  * 
  * Query parameters:
- * - dateFrom: Start date (YYYY-MM-DD)
- * - dateTo: End date (YYYY-MM-DD)
- * - routeTo: Route To filter (can be multiple)
- * - projectType: Project Type filter (can be multiple)
- * - utmSource: UTM Source filter (can be multiple)
- * - campaign: Campaign filter (can be multiple)
- * - state: State filter (can be multiple)
- * - struxureDealer: Struxure Dealer filter
- * - deepwaterDealer: Deepwater Dealer filter
  * - page: Page number (default: 1)
  * - limit: Items per page (default: 25, max: 500)
  * - nocache: Skip cache (default: false)
@@ -83,48 +68,38 @@ function generateCacheKey(filters: QueryFilters, pagination: PaginationOptions):
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
-    const filters = parseFilters(searchParams);
-    const pagination = parsePagination(searchParams);
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+    const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || '25', 10)), 500);
     const noCache = searchParams.get('nocache') === 'true';
 
-    console.log('📥 BigQuery API Request:', { filters, pagination, noCache });
+    console.log('📥 BigQuery API Request:', { page, limit, noCache });
 
-    // Generate cache key
-    const cacheKey = generateCacheKey(filters, pagination);
-
-    // Check cache first (unless nocache is specified)
-    if (!noCache) {
-      try {
-        const cached = await getCachedData(cacheKey);
-        if (cached) {
-          console.log('✅ Returning cached BigQuery data');
-          return NextResponse.json({
-            success: true,
-            ...cached,
-            cached: true,
-          });
-        }
-      } catch (cacheError) {
-        console.warn('⚠️ Cache read error:', cacheError);
-        // Continue to fetch from BigQuery
-      }
+    // Get all data (from Redis cache or BigQuery)
+    let allData: LeadData[];
+    
+    if (noCache) {
+      // Force refresh from BigQuery
+      console.log('🔄 nocache=true, forcing BigQuery fetch...');
+      allData = await fetchAndCacheFromBigQuery();
+    } else {
+      // Try cache first, fallback to BigQuery
+      allData = await getAllData();
     }
 
-    // Query BigQuery
-    const result = await queryLeads(filters, pagination);
+    // Calculate pagination
+    const totalCount = allData.length;
+    const offset = (page - 1) * limit;
+    const paginatedData = allData.slice(offset, offset + limit);
 
-    // Cache the result for 15 minutes
-    try {
-      await setCachedData(cacheKey, result, 60 * 15);
-    } catch (cacheError) {
-      console.warn('⚠️ Cache write error:', cacheError);
-      // Continue even if caching fails
-    }
+    console.log(`✅ Returning ${paginatedData.length} rows (page ${page} of ${Math.ceil(totalCount / limit)})`);
 
     return NextResponse.json({
       success: true,
-      ...result,
-      cached: false,
+      data: paginatedData,
+      totalCount,
+      page,
+      limit,
+      cached: !noCache,
     });
 
   } catch (error) {
@@ -134,7 +109,34 @@ export async function GET(request: NextRequest) {
       {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
-        message: 'Failed to fetch data from BigQuery'
+        message: 'Failed to fetch data'
+      },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * POST /api/bigquery-data
+ * 
+ * Manually refresh the cache from BigQuery
+ */
+export async function POST() {
+  try {
+    console.log('🔄 Manual cache refresh requested...');
+    const data = await fetchAndCacheFromBigQuery();
+    
+    return NextResponse.json({
+      success: true,
+      message: 'Cache refreshed from BigQuery',
+      count: data.length,
+    });
+  } catch (error) {
+    console.error('❌ Cache refresh error:', error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
     );
