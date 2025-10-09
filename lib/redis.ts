@@ -25,17 +25,17 @@ export async function getRedisClient() {
 const CACHE_KEY = 'google_sheets_data';
 const TTL = 60 * 60 * 24; // 24 hours in seconds
 
-export async function getCachedData() {
+export async function getCachedData(key: string = CACHE_KEY) {
   try {
     const redis = await getRedisClient();
-    const cached = await redis.get(CACHE_KEY);
+    const cached = await redis.get(key);
     
     if (cached) {
-      console.log('✅ Using cached data from Redis');
+      console.log(`✅ Using cached data from Redis (key: ${key})`);
       return JSON.parse(cached);
     }
     
-    console.log('❌ No cached data found in Redis');
+    console.log(`❌ No cached data found in Redis (key: ${key})`);
     return null;
   } catch (error) {
     console.error('Error getting cached data:', error);
@@ -43,11 +43,11 @@ export async function getCachedData() {
   }
 }
 
-export async function setCachedData(data: any) {
+export async function setCachedData(key: string, data: any, ttl: number = TTL) {
   try {
     const redis = await getRedisClient();
-    await redis.setEx(CACHE_KEY, TTL, JSON.stringify(data));
-    console.log('✅ Data cached in Redis with 24-hour TTL');
+    await redis.setEx(key, ttl, JSON.stringify(data));
+    console.log(`✅ Data cached in Redis (key: ${key}, TTL: ${ttl}s)`);
     return true;
   } catch (error) {
     console.error('Error setting cached data:', error);

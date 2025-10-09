@@ -53,7 +53,7 @@ export async function GET() {
       data = await fetchFromGoogleSheets();
       
       // Store in Redis with 24-hour TTL
-      await setCachedData(data);
+      await setCachedData('google_sheets_data', data);
     }
 
     return NextResponse.json({
@@ -93,7 +93,7 @@ export async function POST() {
   try {
     console.log('🔄 Manual cache refresh requested...');
     const data = await fetchFromGoogleSheets();
-    await setCachedData(data);
+    await setCachedData('google_sheets_data', data);
     
     return NextResponse.json({
       success: true,
