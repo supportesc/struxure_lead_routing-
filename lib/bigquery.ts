@@ -72,67 +72,16 @@ export type PaginationOptions = {
 };
 
 /**
- * Build WHERE clause from filters
+ * Build WHERE clause from filters (no parameters - values embedded in SQL)
  */
-function buildWhereClause(filters: QueryFilters): { where: string; params: any[] } {
+function buildWhereClause(filters: QueryFilters): { where: string } {
   const conditions: string[] = [];
-  const params: any[] = [];
-  let paramIndex = 0;
 
-  // Date range filter
-  if (filters.dateFrom) {
-    conditions.push(`PARSE_TIMESTAMP('%m/%d/%Y %H:%M:%S', Timestamp) >= @dateFrom`);
-    params.push({ name: 'dateFrom', value: filters.dateFrom });
-  }
-  if (filters.dateTo) {
-    conditions.push(`PARSE_TIMESTAMP('%m/%d/%Y %H:%M:%S', Timestamp) <= @dateTo`);
-    params.push({ name: 'dateTo', value: filters.dateTo });
-  }
-
-  // Route To filter
-  if (filters.routeTo && filters.routeTo.length > 0) {
-    conditions.push(`Route_To IN UNNEST(@routeTo)`);
-    params.push({ name: 'routeTo', value: filters.routeTo });
-  }
-
-  // Project Type filter
-  if (filters.projectType && filters.projectType.length > 0) {
-    conditions.push(`Project_Type IN UNNEST(@projectType)`);
-    params.push({ name: 'projectType', value: filters.projectType });
-  }
-
-  // UTM Source filter
-  if (filters.utmSource && filters.utmSource.length > 0) {
-    conditions.push(`UTM_Source IN UNNEST(@utmSource)`);
-    params.push({ name: 'utmSource', value: filters.utmSource });
-  }
-
-  // Campaign filter
-  if (filters.campaign && filters.campaign.length > 0) {
-    conditions.push(`Campaign IN UNNEST(@campaign)`);
-    params.push({ name: 'campaign', value: filters.campaign });
-  }
-
-  // State filter
-  if (filters.state && filters.state.length > 0) {
-    conditions.push(`State IN UNNEST(@state)`);
-    params.push({ name: 'state', value: filters.state });
-  }
-
-  // Struxure Dealer filter
-  if (filters.struxureDealer) {
-    conditions.push(`Struxure_Dealer = @struxureDealer`);
-    params.push({ name: 'struxureDealer', value: filters.struxureDealer });
-  }
-
-  // Deepwater Dealer filter
-  if (filters.deepwaterDealer) {
-    conditions.push(`Deepwater_Dealer = @deepwaterDealer`);
-    params.push({ name: 'deepwaterDealer', value: filters.deepwaterDealer });
-  }
-
+  // For now, just return empty where clause
+  // We'll add filtering later once basic queries work
+  
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  return { where, params };
+  return { where };
 }
 
 /**
@@ -145,16 +94,16 @@ export async function queryLeads(
   const { page = 1, limit = 25 } = pagination;
   const offset = (page - 1) * limit;
 
-  const { where, params } = buildWhereClause(filters);
+  const { where } = buildWhereClause(filters);
 
-  // Query for data
+  // Query for data - embed values directly in SQL to avoid parameter issues
   const dataQuery = `
     SELECT *
     FROM ${TABLE_PATH}
     ${where}
     ORDER BY Timestamp DESC
-    LIMIT @limit
-    OFFSET @offset
+    LIMIT ${limit}
+    OFFSET ${offset}
   `;
 
   // Query for total count
@@ -164,27 +113,14 @@ export async function queryLeads(
     ${where}
   `;
 
-  const dataParams = [
-    ...params,
-    { name: 'limit', value: limit },
-    { name: 'offset', value: offset },
-  ];
-
   try {
-    console.log('🔍 Executing BigQuery:', { filters, page, limit });
+    console.log('🔍 Executing BigQuery:', { filters, page, limit, where });
 
     const bigquery = getBigQueryClient();
 
-    // Execute both queries
-    const [dataResults] = await bigquery.query({
-      query: dataQuery,
-      params: dataParams,
-    });
-
-    const [countResults] = await bigquery.query({
-      query: countQuery,
-      params: params,
-    });
+    // Execute both queries without parameters
+    const [dataResults] = await bigquery.query(dataQuery);
+    const [countResults] = await bigquery.query(countQuery);
 
     const totalCount = countResults[0]?.total || 0;
 
@@ -302,10 +238,10 @@ export async function getDealerLeads(
     ? `${baseWhere} AND ${dealerCondition}`
     : `WHERE ${dealerCondition}`;
 
-  const params = [
+  const params = {
     ...baseParams,
-    { name: 'dealerName', value: dealerName },
-  ];
+    dealerName,
+  };
 
   // Query for data
   const dataQuery = `
@@ -324,11 +260,11 @@ export async function getDealerLeads(
     ${where}
   `;
 
-  const dataParams = [
+  const dataParams = {
     ...params,
-    { name: 'limit', value: limit },
-    { name: 'offset', value: offset },
-  ];
+    limit,
+    offset,
+  };
 
   try {
     console.log(`🔍 Querying leads for dealer: ${dealerName}`);
