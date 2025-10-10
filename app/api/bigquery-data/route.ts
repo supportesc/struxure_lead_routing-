@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { LeadData } from '@/lib/bigquery';
 import { getCachedData, setCachedData } from '@/lib/redis';
+import { normalizeLeadTimestamps, analyzeTimestampFormats } from '@/lib/timestamp-normalizer';
 
 const FULL_CACHE_KEY = 'bigquery_leads_full_cache';
 
@@ -31,19 +32,31 @@ async function fetchAndCacheFromBigQuery() {
   const [rows] = await bigquery.query(query);
   console.log(`✅ Fetched ${rows.length.toLocaleString()} rows from BigQuery`);
 
+  // Analyze timestamp formats before normalization
+  const formatAnalysis = analyzeTimestampFormats(rows);
+  console.log('📊 Timestamp Format Analysis:', formatAnalysis.formats);
+  
+  if (formatAnalysis.inconsistent.length > 0) {
+    console.warn('⚠️ Found inconsistent timestamp formats:', formatAnalysis.inconsistent.slice(0, 3));
+  }
+
+  // Normalize all timestamps to consistent format
+  const normalizedRows = normalizeLeadTimestamps(rows);
+  console.log('✅ Timestamps normalized to consistent format');
+
   // Sort by timestamp DESC (BigQuery sorts strings alphabetically, not chronologically)
-  rows.sort((a: any, b: any) => {
+  normalizedRows.sort((a: any, b: any) => {
     const dateA = new Date(a.Timestamp);
     const dateB = new Date(b.Timestamp);
     return dateB.getTime() - dateA.getTime(); // DESC order (newest first)
   });
   
-  console.log(`✅ Data sorted. Newest: ${rows[0]?.Timestamp}`);
+  console.log(`✅ Data sorted. Newest: ${normalizedRows[0]?.Timestamp}`);
 
   // Cache for 24 hours
-  await setCachedData(FULL_CACHE_KEY, rows, 60 * 60 * 24);
+  await setCachedData(FULL_CACHE_KEY, normalizedRows, 60 * 60 * 24);
   
-  return rows as LeadData[];
+  return normalizedRows as LeadData[];
 }
 
 /**

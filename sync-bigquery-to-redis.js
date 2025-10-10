@@ -2,6 +2,7 @@ const { BigQuery } = require('@google-cloud/bigquery');
 const redis = require('redis');
 const fs = require('fs');
 const path = require('path');
+const { normalizeLeadTimestamps, analyzeTimestampFormats } = require('./lib/timestamp-normalizer.js');
 
 async function syncBigQueryToRedis() {
   let redisClient;
@@ -53,18 +54,32 @@ async function syncBigQueryToRedis() {
 
     console.log(`✅ Fetched ${rows.length.toLocaleString()} rows in ${queryTime}s`);
     
+    // Analyze timestamp formats before normalization
+    console.log('🔍 Analyzing timestamp formats...');
+    const formatAnalysis = analyzeTimestampFormats(rows);
+    console.log('📊 Timestamp Format Analysis:', formatAnalysis.formats);
+    
+    if (formatAnalysis.inconsistent.length > 0) {
+      console.warn('⚠️ Found inconsistent timestamp formats:', formatAnalysis.inconsistent.slice(0, 3));
+    }
+    
+    // Normalize all timestamps to consistent format
+    console.log('🔄 Normalizing timestamps...');
+    const normalizedRows = normalizeLeadTimestamps(rows);
+    console.log('✅ Timestamps normalized to consistent format');
+    
     // Sort by timestamp DESC in JavaScript (BigQuery sorts strings wrong)
     console.log('🔄 Sorting data by timestamp...');
-    rows.sort((a, b) => {
+    normalizedRows.sort((a, b) => {
       const dateA = new Date(a.Timestamp);
       const dateB = new Date(b.Timestamp);
       return dateB.getTime() - dateA.getTime(); // DESC order (newest first)
     });
     
-    console.log(`✅ Data sorted. Newest: ${rows[0]?.Timestamp}, Oldest: ${rows[rows.length - 1]?.Timestamp}\n`);
+    console.log(`✅ Data sorted. Newest: ${normalizedRows[0]?.Timestamp}, Oldest: ${normalizedRows[normalizedRows.length - 1]?.Timestamp}\n`);
 
     // 5. Calculate data size
-    const dataString = JSON.stringify(rows);
+    const dataString = JSON.stringify(normalizedRows);
     const dataSizeBytes = Buffer.byteLength(dataString, 'utf8');
     const dataSizeMB = (dataSizeBytes / (1024 * 1024)).toFixed(2);
 
