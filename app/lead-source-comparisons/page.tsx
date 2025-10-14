@@ -6,7 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Calendar, TrendingUp, TrendingDown, Users, Building, Link, RefreshCw, BarChart3 } from 'lucide-react';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Calendar, TrendingUp, TrendingDown, Users, Building, Link, RefreshCw, BarChart3, X } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 type DateRange = {
@@ -19,6 +20,7 @@ export default function LeadSourceComparisons() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [dateRangeOpen, setDateRangeOpen] = useState(false);
   
   // Current year date range
   const [currentYearRange, setCurrentYearRange] = useState<DateRange>({
@@ -345,101 +347,134 @@ export default function LeadSourceComparisons() {
           </div>
         </div>
 
-        {/* Date Range Selectors */}
-        <Card className="mb-8 bg-slate-900/40 backdrop-blur-xl border-slate-700/50 shadow-2xl">
-          <CardHeader className="border-b border-slate-700/50">
-            <CardTitle className="flex items-center gap-3 text-xl">
-              <div className="p-2 bg-purple-500/10 rounded-xl">
-                <Calendar className="w-6 h-6 text-purple-400" />
-              </div>
-              <span className="bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">Date Range Selection</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-6">
-            {/* Quick Filter Buttons */}
-            <div className="flex items-center justify-center gap-3 mb-6 pb-6 border-b border-slate-700/50">
-              <span className="text-sm text-gray-400 font-semibold">Quick Filters:</span>
-              <Button
-                onClick={applyLast7Days}
-                variant="outline"
-                size="sm"
-                className="bg-slate-800/50 border-slate-600/50 hover:bg-purple-500/10 hover:border-purple-500/50 hover:text-purple-400 transition-all duration-300"
+        {/* Filter Controls - Clean Button Interface */}
+        <div className="mb-8 flex items-center gap-4 flex-wrap">
+          {/* Date Range Selection Button */}
+          <Sheet open={dateRangeOpen} onOpenChange={setDateRangeOpen}>
+            <SheetTrigger asChild>
+              <Button 
+                className="bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white shadow-lg hover:shadow-purple-500/30 transition-all duration-300 border border-slate-600/50"
+                size="lg"
               >
-                Last 7 Days (YoY)
+                <Calendar className="w-5 h-5 mr-2" />
+                Date Range Selection
+                <Badge className="ml-2 bg-purple-500/20 text-purple-300 border-purple-500/30">
+                  Comparison Mode
+                </Badge>
               </Button>
-              <Button
-                onClick={applyLast30Days}
-                variant="outline"
-                size="sm"
-                className="bg-slate-800/50 border-slate-600/50 hover:bg-purple-500/10 hover:border-purple-500/50 hover:text-purple-400 transition-all duration-300"
-              >
-                Last 30 Days (YoY)
-              </Button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Current Year Range */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-bold text-purple-400 flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5" />
-                  Current Year Range
-                </h3>
-                <div className="space-y-3">
-                  <div>
-                    <Label htmlFor="current-start" className="text-sm text-gray-300 mb-2 block">Start Date</Label>
-                    <Input
-                      id="current-start"
-                      type="date"
-                      value={currentYearRange.start}
-                      onChange={(e) => setCurrentYearRange(prev => ({ ...prev, start: e.target.value }))}
-                      className="w-full"
-                    />
+            </SheetTrigger>
+            <SheetContent side="right" className="w-[500px] sm:w-[600px] bg-slate-900/95 backdrop-blur-xl border-slate-700/50 overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle className="flex items-center gap-3 text-2xl">
+                  <div className="p-2 bg-purple-500/10 rounded-xl">
+                    <Calendar className="w-6 h-6 text-purple-400" />
                   </div>
-                  <div>
-                    <Label htmlFor="current-end" className="text-sm text-gray-300 mb-2 block">End Date</Label>
-                    <Input
-                      id="current-end"
-                      type="date"
-                      value={currentYearRange.end}
-                      onChange={(e) => setCurrentYearRange(prev => ({ ...prev, end: e.target.value }))}
-                      className="w-full"
-                    />
+                  <span className="bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">Date Range Selection</span>
+                </SheetTitle>
+                <SheetDescription className="text-gray-400">
+                  Configure year-over-year comparison periods
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="mt-8 space-y-6">
+                {/* Quick Filter Buttons */}
+                <div>
+                  <Label className="text-sm text-gray-400 font-semibold mb-3 block">Quick Filters:</Label>
+                  <div className="flex flex-col gap-3">
+                    <Button
+                      onClick={() => {
+                        applyLast7Days();
+                        setDateRangeOpen(false);
+                      }}
+                      variant="outline"
+                      className="w-full justify-start bg-slate-800/50 border-slate-600/50 hover:bg-purple-500/10 hover:border-purple-500/50 hover:text-purple-400 transition-all duration-300"
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Last 7 Days (YoY)
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        applyLast30Days();
+                        setDateRangeOpen(false);
+                      }}
+                      variant="outline"
+                      className="w-full justify-start bg-slate-800/50 border-slate-600/50 hover:bg-purple-500/10 hover:border-purple-500/50 hover:text-purple-400 transition-all duration-300"
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Last 30 Days (YoY)
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Divider */}
+                <div className="border-t border-slate-700/50"></div>
+
+                {/* Current Year Range */}
+                <div className="space-y-4 p-4 bg-purple-500/5 border border-purple-500/20 rounded-xl">
+                  <h3 className="text-base font-bold text-purple-300 flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5" />
+                    Current Year Range
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="current-start" className="text-sm text-gray-300">Start Date</Label>
+                      <Input
+                        id="current-start"
+                        type="date"
+                        value={currentYearRange.start}
+                        onChange={(e) => setCurrentYearRange(prev => ({ ...prev, start: e.target.value }))}
+                        className="w-full bg-slate-800/50 border-slate-600/50"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="current-end" className="text-sm text-gray-300">End Date</Label>
+                      <Input
+                        id="current-end"
+                        type="date"
+                        value={currentYearRange.end}
+                        onChange={(e) => setCurrentYearRange(prev => ({ ...prev, end: e.target.value }))}
+                        className="w-full bg-slate-800/50 border-slate-600/50"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Divider */}
+                <div className="border-t border-slate-700/50"></div>
+
+                {/* Last Year Range */}
+                <div className="space-y-4 p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl">
+                  <h3 className="text-base font-bold text-blue-300 flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5" />
+                    Comparison Year Range
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="last-start" className="text-sm text-gray-300">Start Date</Label>
+                      <Input
+                        id="last-start"
+                        type="date"
+                        value={lastYearRange.start}
+                        onChange={(e) => setLastYearRange(prev => ({ ...prev, start: e.target.value }))}
+                        className="w-full bg-slate-800/50 border-slate-600/50"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="last-end" className="text-sm text-gray-300">End Date</Label>
+                      <Input
+                        id="last-end"
+                        type="date"
+                        value={lastYearRange.end}
+                        onChange={(e) => setLastYearRange(prev => ({ ...prev, end: e.target.value }))}
+                        className="w-full bg-slate-800/50 border-slate-600/50"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
-
-              {/* Last Year Range */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-bold text-blue-400 flex items-center gap-2">
-                  <BarChart3 className="w-5 h-5" />
-                  Comparison Year Range
-                </h3>
-                <div className="space-y-3">
-                  <div>
-                    <Label htmlFor="last-start" className="text-sm text-gray-300 mb-2 block">Start Date</Label>
-                    <Input
-                      id="last-start"
-                      type="date"
-                      value={lastYearRange.start}
-                      onChange={(e) => setLastYearRange(prev => ({ ...prev, start: e.target.value }))}
-                      className="w-full"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="last-end" className="text-sm text-gray-300 mb-2 block">End Date</Label>
-                    <Input
-                      id="last-end"
-                      type="date"
-                      value={lastYearRange.end}
-                      onChange={(e) => setLastYearRange(prev => ({ ...prev, end: e.target.value }))}
-                      className="w-full"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </SheetContent>
+          </Sheet>
+        </div>
 
         {/* Route Comparison */}
         <div className="bg-slate-900/40 backdrop-blur-xl rounded-2xl border border-slate-700/50 p-8 mb-10 shadow-2xl">

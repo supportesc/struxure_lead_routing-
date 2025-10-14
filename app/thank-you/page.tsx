@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Building, TrendingUp, Calendar, Users, X, Filter, Mail, Phone, MapPin, Info, RefreshCw } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
@@ -22,6 +23,7 @@ export default function ThankYouPage() {
   const [selectedDealer, setSelectedDealer] = useState<{ name: string; type: 'struxure' | 'deepwater' } | null>(null);
   const [isDealerModalOpen, setIsDealerModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [dateFilterOpen, setDateFilterOpen] = useState(false);
 
   const handleSyncData = async () => {
     try {
@@ -310,92 +312,139 @@ export default function ThankYouPage() {
           </div>
         </div>
 
-        {/* Date Filter */}
-        <Card className="mb-8 bg-slate-900/40 backdrop-blur-xl border-slate-700/50 shadow-2xl">
-          <CardHeader className="border-b border-slate-700/50">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-3 text-xl">
-                <div className="p-2 bg-orange-500/10 rounded-xl">
-                  <Calendar className="w-6 h-6 text-orange-400" />
-                </div>
-                <span className="bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">Date Filter</span>
-              </CardTitle>
-              {dateFilter && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleClearDateFilter}
-                  className="flex items-center gap-2 shadow-lg hover:shadow-red-500/50 transition-all duration-300"
-                >
-                  <X className="w-4 h-4" />
-                  Clear Filter
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="pt-6">
-            {/* Quick Presets */}
-            <div className="flex items-center justify-center gap-3 mb-6 flex-wrap">
-              <span className="text-sm text-gray-400 font-semibold">Quick Select:</span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => applyPresetFilter(7)}
-                className="flex items-center gap-2 bg-slate-800/50 border-slate-600/50 hover:bg-orange-500/10 hover:border-orange-500/50 hover:text-orange-400 transition-all duration-300"
+        {/* Filter Controls - Clean Button Interface */}
+        <div className="mb-8 flex items-center gap-4 flex-wrap">
+          {/* Date Filter Button */}
+          <Sheet open={dateFilterOpen} onOpenChange={setDateFilterOpen}>
+            <SheetTrigger asChild>
+              <Button 
+                className="bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white shadow-lg hover:shadow-orange-500/30 transition-all duration-300 border border-slate-600/50"
+                size="lg"
               >
-                Last 7 Days
+                <Calendar className="w-5 h-5 mr-2" />
+                Date Filter
+                {dateFilter && (
+                  <Badge className="ml-2 bg-orange-500/20 text-orange-300 border-orange-500/30">
+                    Active
+                  </Badge>
+                )}
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => applyPresetFilter(30)}
-                className="flex items-center gap-2 bg-slate-800/50 border-slate-600/50 hover:bg-orange-500/10 hover:border-orange-500/50 hover:text-orange-400 transition-all duration-300"
-              >
-                Last 30 Days
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => applyPresetFilter(60)}
-                className="flex items-center gap-2 bg-slate-800/50 border-slate-600/50 hover:bg-orange-500/10 hover:border-orange-500/50 hover:text-orange-400 transition-all duration-300"
-              >
-                Last 60 Days
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => applyPresetFilter(90)}
-                className="flex items-center gap-2 bg-slate-800/50 border-slate-600/50 hover:bg-orange-500/10 hover:border-orange-500/50 hover:text-orange-400 transition-all duration-300"
-              >
-                Last 90 Days
-              </Button>
-            </div>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-[500px] sm:w-[600px] bg-slate-900/95 backdrop-blur-xl border-slate-700/50 overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle className="flex items-center gap-3 text-2xl">
+                  <div className="p-2 bg-orange-500/10 rounded-xl">
+                    <Calendar className="w-6 h-6 text-orange-400" />
+                  </div>
+                  <span className="bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">Date Filter</span>
+                </SheetTitle>
+                <SheetDescription className="text-gray-400">
+                  Filter dealer leads by date range
+                </SheetDescription>
+              </SheetHeader>
 
-            {/* Custom Date Range */}
-            <div className="flex items-center justify-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="start-date" className="text-sm text-muted-foreground">From:</Label>
-                <Input
-                  id="start-date"
-                  type="date"
-                  value={dateFilter?.start || ''}
-                  onChange={(e) => setDateFilter(prev => ({ start: e.target.value, end: prev?.end || '' }))}
-                  className="w-auto"
-                />
+              <div className="mt-8 space-y-6">
+                {/* Quick Presets */}
+                <div>
+                  <Label className="text-sm text-gray-400 font-semibold mb-3 block">Quick Select:</Label>
+                  <div className="flex flex-col gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        applyPresetFilter(7);
+                        setDateFilterOpen(false);
+                      }}
+                      className="w-full justify-start bg-slate-800/50 border-slate-600/50 hover:bg-orange-500/10 hover:border-orange-500/50 hover:text-orange-400 transition-all duration-300"
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Last 7 Days
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        applyPresetFilter(30);
+                        setDateFilterOpen(false);
+                      }}
+                      className="w-full justify-start bg-slate-800/50 border-slate-600/50 hover:bg-orange-500/10 hover:border-orange-500/50 hover:text-orange-400 transition-all duration-300"
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Last 30 Days
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        applyPresetFilter(60);
+                        setDateFilterOpen(false);
+                      }}
+                      className="w-full justify-start bg-slate-800/50 border-slate-600/50 hover:bg-orange-500/10 hover:border-orange-500/50 hover:text-orange-400 transition-all duration-300"
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Last 60 Days
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        applyPresetFilter(90);
+                        setDateFilterOpen(false);
+                      }}
+                      className="w-full justify-start bg-slate-800/50 border-slate-600/50 hover:bg-orange-500/10 hover:border-orange-500/50 hover:text-orange-400 transition-all duration-300"
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Last 90 Days
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Divider */}
+                <div className="border-t border-slate-700/50"></div>
+
+                {/* Custom Date Range */}
+                <div>
+                  <Label className="text-sm text-gray-400 font-semibold mb-3 block">Custom Date Range:</Label>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="start-date" className="text-sm text-gray-300">From Date:</Label>
+                      <Input
+                        id="start-date"
+                        type="date"
+                        value={dateFilter?.start || ''}
+                        onChange={(e) => setDateFilter(prev => ({ start: e.target.value, end: prev?.end || '' }))}
+                        className="w-full bg-slate-800/50 border-slate-600/50"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="end-date" className="text-sm text-gray-300">To Date:</Label>
+                      <Input
+                        id="end-date"
+                        type="date"
+                        value={dateFilter?.end || ''}
+                        onChange={(e) => setDateFilter(prev => ({ start: prev?.start || '', end: e.target.value }))}
+                        className="w-full bg-slate-800/50 border-slate-600/50"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                {dateFilter && (
+                  <div className="pt-4">
+                    <Button
+                      variant="destructive"
+                      onClick={() => {
+                        handleClearDateFilter();
+                        setDateFilterOpen(false);
+                      }}
+                      className="w-full"
+                    >
+                      <X className="w-4 h-4 mr-2" />
+                      Clear Date Filter
+                    </Button>
+                  </div>
+                )}
               </div>
-              <div className="flex items-center gap-2">
-                <Label htmlFor="end-date" className="text-sm text-muted-foreground">To:</Label>
-                <Input
-                  id="end-date"
-                  type="date"
-                  value={dateFilter?.end || ''}
-                  onChange={(e) => setDateFilter(prev => ({ start: prev?.start || '', end: e.target.value }))}
-                  className="w-auto"
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </SheetContent>
+          </Sheet>
+        </div>
 
         {/* Active Filter Display */}
         {dateFilter && (dateFilter.start || dateFilter.end) && (
