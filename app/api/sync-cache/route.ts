@@ -5,13 +5,14 @@ const FULL_CACHE_KEY = 'bigquery_leads_full_cache';
 
 /**
  * Query all data from BigQuery and cache it in Redis
+ * ⚠️ THIS FUNCTION CALLS BIGQUERY API
  */
 async function syncBigQueryToRedis() {
   const { BigQuery } = await import('@google-cloud/bigquery');
   const fs = await import('fs');
   const path = await import('path');
   
-  console.log('📥 Starting BigQuery to Redis sync...');
+  console.log('📥 [BIGQUERY] Starting BigQuery to Redis sync...');
   
   const credentialsPath = path.join(process.cwd(), 'bigquery-credentials.json');
   const credentialsContent = fs.readFileSync(credentialsPath, 'utf8');
@@ -27,11 +28,12 @@ async function syncBigQueryToRedis() {
     FROM \`oceanic-sky-474609-v5.lead_generation.struxure_leads\`
   `;
 
+  console.log('📡 [BIGQUERY] Executing BigQuery SQL query...');
   const startTime = Date.now();
   const [rows] = await bigquery.query(query);
   const queryTime = ((Date.now() - startTime) / 1000).toFixed(2);
 
-  console.log(`✅ Fetched ${rows.length.toLocaleString()} rows from BigQuery in ${queryTime}s`);
+  console.log(`✅ [BIGQUERY] Fetched ${rows.length.toLocaleString()} rows from BigQuery in ${queryTime}s`);
   
   // Sort by timestamp DESC (BigQuery sorts strings alphabetically, not chronologically)
   rows.sort((a: any, b: any) => {
@@ -63,12 +65,26 @@ async function syncBigQueryToRedis() {
  * POST /api/sync-cache
  * 
  * Manually trigger sync from BigQuery to Redis
+ * ⚠️ THIS ENDPOINT CALLS BIGQUERY - Only use for manual cache refresh
  */
 export async function POST() {
   try {
-    console.log('🔄 Cache sync requested via API...');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🔄 [SYNC] Manual cache sync requested via /api/sync-cache');
+    console.log('📡 [BIGQUERY CALL] This endpoint WILL call BigQuery API');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
     const result = await syncBigQueryToRedis();
+    
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('✅ [SYNC COMPLETE] BigQuery data successfully synced to Redis');
+    console.log('📊 [STATS]', {
+      rows: result.rowCount,
+      sizeMB: result.dataSizeMB,
+      queryTime: result.queryTime + 's',
+      ttl: '24 hours'
+    });
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
     return NextResponse.json({
       success: true,
@@ -83,7 +99,10 @@ export async function POST() {
       }
     });
   } catch (error) {
-    console.error('❌ Cache sync error:', error);
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('❌ [SYNC ERROR] Failed to sync cache from BigQuery to Redis');
+    console.error('❌ [ERROR]', error);
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     return NextResponse.json(
       {
         success: false,

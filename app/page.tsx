@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
-import { Filter, X, Calendar, BarChart3, Users, Building, Link, Megaphone, ChevronDown, Check } from 'lucide-react';
+import { Filter, X, Calendar, BarChart3, Users, Building, Link, Megaphone, ChevronDown, Check, RefreshCw } from 'lucide-react';
 
 type DateRange = {
   start: string;
@@ -25,31 +25,74 @@ export default function Home() {
   const [dateFilter, setDateFilter] = useState<DateRange | null>(null);
   const [compareDateFilter, setCompareDateFilter] = useState<DateRange | null>(null);
   const [showCompare, setShowCompare] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSyncData = async () => {
+    try {
+      setIsSyncing(true);
+      console.log('🔄 Syncing data from BigQuery to Redis...');
+      
+      const response = await fetch('/api/sync-cache', { method: 'POST' });
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log('✅ Sync successful!');
+        // Refetch data to show updated information
+        await fetchData();
+      } else {
+        console.error('❌ Sync failed:', result.error);
+        setError(result.error || 'Failed to sync data');
+      }
+    } catch (err) {
+      console.error('❌ Error syncing data:', err);
+      setError('Failed to sync data');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const fetchData = async () => {
     try {
       setIsLoading(true);
       setError(null);
       
+      console.log('🚀 [CLIENT] Starting data fetch...');
+      const startTime = performance.now();
+      
       // Fetch ALL data once (will be cached in Redis)
       const response = await fetch(`/api/bigquery-data?page=1&limit=100000`);
+      const fetchTime = performance.now() - startTime;
+      console.log(`📡 [CLIENT] Fetch completed in ${fetchTime.toFixed(0)}ms`);
+      
+      const parseStart = performance.now();
       const result = await response.json();
+      const parseTime = performance.now() - parseStart;
+      console.log(`📊 [CLIENT] JSON parse completed in ${parseTime.toFixed(0)}ms`);
 
       if (!result.success) {
-        throw new Error(result.error || 'Failed to fetch data');
+        setError(result.error || 'Failed to fetch data');
+        return;
       }
 
+      console.log(`📦 [CLIENT] Received ${result.data.length.toLocaleString()} rows from server`);
+      
       // Sort by timestamp DESC (newest first) - BigQuery sorts strings wrong
+      const sortStart = performance.now();
       const sortedData = result.data.sort((a: any, b: any) => {
         const dateA = new Date(a.Timestamp);
         const dateB = new Date(b.Timestamp);
         return dateB.getTime() - dateA.getTime(); // DESC order
       });
+      const sortTime = performance.now() - sortStart;
+      console.log(`⏱️ [CLIENT] Sort completed in ${sortTime.toFixed(0)}ms`);
 
       setAllData(sortedData);
+      
+      const totalTime = performance.now() - startTime;
+      console.log(`✅ [CLIENT] Total page load time: ${totalTime.toFixed(0)}ms`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
-      console.error('Error fetching data:', err);
+      console.error('❌ [CLIENT] Error fetching data:', err);
     } finally {
       setIsLoading(false);
     }
@@ -82,11 +125,6 @@ export default function Home() {
       const endDate = new Date(dateFilter.end);
       endDate.setHours(23, 59, 59, 999);
       
-      let validCount = 0;
-      let invalidCount = 0;
-      const sampleMatches = [];
-      const sampleNonMatches = [];
-      
       filtered = filtered.filter(item => {
         // Parse timestamp - format is "M/D/YYYY H:mm:ss"
         let itemDate;
@@ -107,36 +145,10 @@ export default function Home() {
         
         // If invalid date, skip this item
         if (!itemDate || isNaN(itemDate.getTime())) {
-          invalidCount++;
           return false;
         }
         
-        const inRange = itemDate >= startDate && itemDate <= endDate;
-        
-        // Collect samples for debugging
-        if (inRange && sampleMatches.length < 3) {
-          sampleMatches.push({
-            timestamp: item.Timestamp,
-            parsed: itemDate.toLocaleDateString(),
-            itemDate: itemDate.getTime(),
-            startDate: startDate.getTime(),
-            endDate: endDate.getTime()
-          });
-        } else if (!inRange && sampleNonMatches.length < 3) {
-          sampleNonMatches.push({
-            timestamp: item.Timestamp,
-            parsed: itemDate.toLocaleDateString(),
-            itemDate: itemDate.getTime(),
-            startDate: startDate.getTime(),
-            endDate: endDate.getTime(),
-            tooOld: itemDate < startDate,
-            tooNew: itemDate > endDate
-          });
-        }
-        
-        if (inRange) validCount++;
-        
-        return inRange;
+        return itemDate >= startDate && itemDate <= endDate;
       });
     }
     
@@ -280,11 +292,8 @@ export default function Home() {
   const paginatedData = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    const paginated = filteredData.slice(startIndex, endIndex);
-    
-    
-    return paginated;
-  }, [filteredData, currentPage, itemsPerPage, dateFilter]);
+    return filteredData.slice(startIndex, endIndex);
+  }, [filteredData, currentPage, itemsPerPage]);
 
   // Reset to page 1 when filter changes
   useEffect(() => {
@@ -341,59 +350,93 @@ export default function Home() {
     return ((current - previous) / previous) * 100;
   };
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-cyan-900/20 via-transparent to-transparent"></div>
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_var(--tw-gradient-stops))] from-blue-900/20 via-transparent to-transparent"></div>
+        <div className="text-center relative z-10">
+          <div className="relative inline-block">
+            <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-t-4 border-cyan-500 mx-auto"></div>
+            <div className="absolute inset-0 animate-ping rounded-full h-16 w-16 border-2 border-cyan-500/30 mx-auto"></div>
+          </div>
+          <p className="text-gray-300 mt-6 text-lg font-medium animate-pulse">Loading leads...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-red-900/20 via-transparent to-transparent"></div>
+        <div className="text-center relative z-10">
+          <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-8 backdrop-blur-sm">
+            <div className="text-red-400 text-2xl mb-4 font-bold">Error</div>
+            <p className="text-gray-300">{error}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 py-12 px-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold mb-2">
-            <span className="bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 relative overflow-hidden">
+      {/* Animated Background Effects */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-cyan-900/10 via-transparent to-transparent animate-pulse"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_var(--tw-gradient-stops))] from-blue-900/10 via-transparent to-transparent animate-pulse" style={{ animationDelay: '1s' }}></div>
+      <div className="absolute inset-0 bg-grid-white/[0.02] bg-[size:50px_50px]"></div>
+
+      <main className="max-w-7xl mx-auto px-6 py-10 relative z-10">
+        {/* Data Info Header */}
+        <div className="text-center mb-10">
+          <h2 className="text-5xl font-black mb-6">
+            <span className="bg-gradient-to-r from-cyan-400 via-blue-500 to-cyan-600 bg-clip-text text-transparent">
               Lead Management
             </span>
-          </h1>
-          <p className="text-gray-400">
-            {dateFilter ? `Filtered: ${stats.total.toLocaleString()} of ${allData.length.toLocaleString()} total leads` : `${allData.length.toLocaleString()} total leads`}
-          </p>
-          {allData.length > 0 && (
-            <div className="mt-2 text-xs text-gray-500">
-              <details className="inline-block">
-                <summary className="cursor-pointer hover:text-gray-400">Debug Info</summary>
-                <div className="mt-2 bg-slate-800/50 rounded p-2 text-left max-w-2xl mx-auto">
-                  <p><strong>Sample Timestamp:</strong> {allData[0]?.Timestamp}</p>
-                  <p><strong>Type:</strong> {typeof allData[0]?.Timestamp}</p>
-                  <p><strong>Parsed:</strong> {new Date(allData[0]?.Timestamp).toISOString()}</p>
-                  <p><strong>Date Range:</strong> {
-                    (() => {
-                      const dates = allData.map(d => new Date(d.Timestamp)).filter(d => !isNaN(d.getTime()));
-                      if (dates.length === 0) return 'No valid dates';
-                      const min = new Date(Math.min(...dates.map(d => d.getTime())));
-                      const max = new Date(Math.max(...dates.map(d => d.getTime())));
-                      return `${min.toLocaleDateString()} to ${max.toLocaleDateString()}`;
-                    })()
-                  }</p>
-                  <a href="/api/debug-data" target="_blank" className="text-cyan-400 hover:underline">
-                    View Full Debug Data →
-                  </a>
-                </div>
-              </details>
-            </div>
-          )}
+          </h2>
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <div className="h-1.5 w-1.5 bg-green-400 rounded-full animate-pulse"></div>
+            <p className="text-gray-300 font-medium">
+              {dateFilter ? (
+                <>
+                  Filtered: <span className="text-cyan-400 font-bold">{stats.total.toLocaleString()}</span> of <span className="text-gray-400">{allData.length.toLocaleString()}</span> total leads
+                </>
+              ) : (
+                <>
+                  <span className="text-cyan-400 font-bold">{allData.length.toLocaleString()}</span> total leads
+                </>
+              )}
+            </p>
+          </div>
+          
+          {/* Refresh Data Button */}
+          <Button
+            onClick={handleSyncData}
+            disabled={isSyncing}
+            className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white shadow-lg shadow-green-500/30 hover:shadow-green-500/50 transition-all duration-300"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
+            {isSyncing ? 'Refreshing Data...' : 'Refresh Data'}
+          </Button>
         </div>
 
         {/* Date Filter */}
-        <Card className="mb-6">
-          <CardHeader>
+        <Card className="mb-8 bg-slate-900/40 backdrop-blur-xl border-slate-700/50 shadow-2xl">
+          <CardHeader className="border-b border-slate-700/50">
             <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-cyan-400" />
-                Date Filter
+              <CardTitle className="flex items-center gap-3 text-xl">
+                <div className="p-2 bg-cyan-500/10 rounded-xl">
+                  <Calendar className="w-6 h-6 text-cyan-400" />
+                </div>
+                <span className="bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">Date Filter</span>
               </CardTitle>
               {dateFilter && (
                 <Button
                   variant="destructive"
                   size="sm"
                   onClick={handleClearDateFilter}
-                  className="flex items-center gap-2"
+                  className="flex items-center gap-2 shadow-lg hover:shadow-red-500/50 transition-all duration-300"
                 >
                   <X className="w-4 h-4" />
                   Clear Date Filter
@@ -401,15 +444,15 @@ export default function Home() {
               )}
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-6">
             {/* Quick Presets */}
             <div className="flex items-center justify-center gap-3 mb-6 flex-wrap">
-              <span className="text-sm text-muted-foreground font-medium">Quick Select:</span>
+              <span className="text-sm text-gray-400 font-semibold">Quick Select:</span>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => applyPresetFilter(7)}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 bg-slate-800/50 border-slate-600/50 hover:bg-cyan-500/10 hover:border-cyan-500/50 hover:text-cyan-400 transition-all duration-300"
               >
                 Last 7 Days
               </Button>
@@ -417,7 +460,7 @@ export default function Home() {
                 variant="outline"
                 size="sm"
                 onClick={() => applyPresetFilter(30)}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 bg-slate-800/50 border-slate-600/50 hover:bg-cyan-500/10 hover:border-cyan-500/50 hover:text-cyan-400 transition-all duration-300"
               >
                 Last 30 Days
               </Button>
@@ -425,7 +468,7 @@ export default function Home() {
                 variant="outline"
                 size="sm"
                 onClick={() => applyPresetFilter(60)}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 bg-slate-800/50 border-slate-600/50 hover:bg-cyan-500/10 hover:border-cyan-500/50 hover:text-cyan-400 transition-all duration-300"
               >
                 Last 60 Days
               </Button>
@@ -462,62 +505,53 @@ export default function Home() {
                 <BarChart3 className="w-4 h-4" />
                 {showCompare ? 'Hide Compare' : 'Compare Periods'}
               </Button>
-            {dateFilter && (dateFilter.start || dateFilter.end) && (
-              <button
-                onClick={handleClearDateFilter}
-                className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                Clear All
-              </button>
-            )}
-          </div>
+            </div>
 
-          {/* Compare Date Range */}
-          {showCompare && (
-            <div className="mt-4 pt-4 border-t border-purple-500/20">
-              <div className="flex items-center justify-center gap-4 flex-wrap">
-                <span className="text-sm text-purple-300 font-semibold">Compare Period:</span>
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-gray-400">From:</label>
-                  <input
-                    type="date"
-                    value={compareDateFilter?.start || ''}
-                    onChange={(e) => setCompareDateFilter(prev => ({ start: e.target.value, end: prev?.end || '' }))}
-                    className="px-3 py-2 bg-purple-900/20 border border-purple-500/30 rounded-lg text-white text-sm focus:border-purple-500 focus:outline-none"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-gray-400">To:</label>
-                  <input
-                    type="date"
-                    value={compareDateFilter?.end || ''}
-                    onChange={(e) => setCompareDateFilter(prev => ({ start: prev?.start || '', end: e.target.value }))}
-                    className="px-3 py-2 bg-purple-900/20 border border-purple-500/30 rounded-lg text-white text-sm focus:border-purple-500 focus:outline-none"
-                  />
+            {/* Compare Date Range */}
+            {showCompare && (
+              <div className="mt-4 pt-4 border-t border-purple-500/20">
+                <div className="flex items-center justify-center gap-4 flex-wrap">
+                  <span className="text-sm text-purple-300 font-semibold">Compare Period:</span>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-400">From:</label>
+                    <input
+                      type="date"
+                      value={compareDateFilter?.start || ''}
+                      onChange={(e) => setCompareDateFilter(prev => ({ start: e.target.value, end: prev?.end || '' }))}
+                      className="px-3 py-2 bg-purple-900/20 border border-purple-500/30 rounded-lg text-white text-sm focus:border-purple-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-400">To:</label>
+                    <input
+                      type="date"
+                      value={compareDateFilter?.end || ''}
+                      onChange={(e) => setCompareDateFilter(prev => ({ start: prev?.start || '', end: e.target.value }))}
+                      className="px-3 py-2 bg-purple-900/20 border border-purple-500/30 rounded-lg text-white text-sm focus:border-purple-500 focus:outline-none"
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
           </CardContent>
         </Card>
 
         {/* Column Filters */}
-        <Card className="mb-6">
-          <CardHeader>
+        <Card className="mb-8 bg-slate-900/40 backdrop-blur-xl border-slate-700/50 shadow-2xl">
+          <CardHeader className="border-b border-slate-700/50">
             <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <Filter className="w-5 h-5 text-cyan-400" />
-                Column Filters
+              <CardTitle className="flex items-center gap-3 text-xl">
+                <div className="p-2 bg-cyan-500/10 rounded-xl">
+                  <Filter className="w-6 h-6 text-cyan-400" />
+                </div>
+                <span className="bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">Column Filters</span>
               </CardTitle>
               {hasActiveFilters && (
                 <Button
                   variant="destructive"
                   size="sm"
                   onClick={handleClearAllFilters}
-                  className="flex items-center gap-2"
+                  className="flex items-center gap-2 shadow-lg hover:shadow-red-500/50 transition-all duration-300"
                 >
                   <X className="w-4 h-4" />
                   Clear All Filters
@@ -525,320 +559,319 @@ export default function Home() {
               )}
             </div>
           </CardHeader>
-          <CardContent>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* Route To Filter */}
-            <div className="space-y-3">
-              <Label className="flex items-center gap-2 text-sm font-medium">
-                <Users className="w-4 h-4 text-blue-400" />
-                Route To
-                {columnFilters.routeTo.length > 0 && (
-                  <Badge variant="secondary" className="bg-blue-500/20 text-blue-300">
-                    {columnFilters.routeTo.length}
-                  </Badge>
-                )}
-              </Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-between">
-                    {columnFilters.routeTo.length > 0 
-                      ? `${columnFilters.routeTo.length} selected` 
-                      : "Select Route To"}
-                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[300px] p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder="Search route..." />
-                    <CommandList>
-                      <CommandEmpty>No route found.</CommandEmpty>
-                      <CommandGroup>
-                        {filterOptions.routeTo.map(option => {
-                          const count = allData.filter(item => item.Route_To === option).length;
-                          const isSelected = columnFilters.routeTo.includes(option);
-                          return (
-                            <CommandItem
-                              key={option}
-                              onSelect={() => {
-                                if (isSelected) {
-                                  setColumnFilters(prev => ({ ...prev, routeTo: prev.routeTo.filter(item => item !== option) }));
-                                } else {
-                                  setColumnFilters(prev => ({ ...prev, routeTo: [...prev.routeTo, option] }));
-                                }
-                              }}
-                            >
-                              <div className="flex items-center gap-2 flex-1">
-                                <Checkbox
-                                  checked={isSelected}
-                                  className="pointer-events-none"
-                                />
-                                <span className="flex-1">{option}</span>
-                                <Badge variant="outline" className="text-xs">
-                                  {count.toLocaleString()}
-                                </Badge>
-                              </div>
-                            </CommandItem>
-                          );
-                        })}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            {/* Project Type Filter */}
-            <div className="space-y-3">
-              <Label className="flex items-center gap-2 text-sm font-medium">
-                <Building className="w-4 h-4 text-green-400" />
-                Project Type
-                {columnFilters.projectType.length > 0 && (
-                  <Badge variant="secondary" className="bg-green-500/20 text-green-300">
-                    {columnFilters.projectType.length}
-                  </Badge>
-                )}
-              </Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-between">
-                    {columnFilters.projectType.length > 0 
-                      ? `${columnFilters.projectType.length} selected` 
-                      : "Select Project Type"}
-                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[300px] p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder="Search project type..." />
-                    <CommandList>
-                      <CommandEmpty>No project type found.</CommandEmpty>
-                      <CommandGroup>
-                        {filterOptions.projectType.map(option => {
-                          const count = allData.filter(item => item.Project_Type === option).length;
-                          const isSelected = columnFilters.projectType.includes(option);
-                          return (
-                            <CommandItem
-                              key={option}
-                              onSelect={() => {
-                                if (isSelected) {
-                                  setColumnFilters(prev => ({ ...prev, projectType: prev.projectType.filter(item => item !== option) }));
-                                } else {
-                                  setColumnFilters(prev => ({ ...prev, projectType: [...prev.projectType, option] }));
-                                }
-                              }}
-                            >
-                              <div className="flex items-center gap-2 flex-1">
-                                <Checkbox
-                                  checked={isSelected}
-                                  className="pointer-events-none"
-                                />
-                                <span className="flex-1">{option}</span>
-                                <Badge variant="outline" className="text-xs">
-                                  {count.toLocaleString()}
-                                </Badge>
-                              </div>
-                            </CommandItem>
-                          );
-                        })}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            {/* UTM Source Filter */}
-            <div className="space-y-3">
-              <Label className="flex items-center gap-2 text-sm font-medium">
-                <Link className="w-4 h-4 text-purple-400" />
-                UTM Source
-                {columnFilters.utmSource.length > 0 && (
-                  <Badge variant="secondary" className="bg-purple-500/20 text-purple-300">
-                    {columnFilters.utmSource.length}
-                  </Badge>
-                )}
-              </Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-between">
-                    {columnFilters.utmSource.length > 0 
-                      ? `${columnFilters.utmSource.length} selected` 
-                      : "Select UTM Source"}
-                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[300px] p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder="Search UTM source..." />
-                    <CommandList>
-                      <CommandEmpty>No UTM source found.</CommandEmpty>
-                      <CommandGroup>
-                        {filterOptions.utmSource.map(option => {
-                          const count = allData.filter(item => item.UTM_Source === option).length;
-                          const isSelected = columnFilters.utmSource.includes(option);
-                          return (
-                            <CommandItem
-                              key={option}
-                              onSelect={() => {
-                                if (isSelected) {
-                                  setColumnFilters(prev => ({ ...prev, utmSource: prev.utmSource.filter(item => item !== option) }));
-                                } else {
-                                  setColumnFilters(prev => ({ ...prev, utmSource: [...prev.utmSource, option] }));
-                                }
-                              }}
-                            >
-                              <div className="flex items-center gap-2 flex-1">
-                                <Checkbox
-                                  checked={isSelected}
-                                  className="pointer-events-none"
-                                />
-                                <span className="flex-1">{option}</span>
-                                <Badge variant="outline" className="text-xs">
-                                  {count.toLocaleString()}
-                                </Badge>
-                              </div>
-                            </CommandItem>
-                          );
-                        })}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            {/* Campaign Filter */}
-            <div className="space-y-3">
-              <Label className="flex items-center gap-2 text-sm font-medium">
-                <Megaphone className="w-4 h-4 text-orange-400" />
-                Campaign (Top 20)
-                {columnFilters.campaign.length > 0 && (
-                  <Badge variant="secondary" className="bg-orange-500/20 text-orange-300">
-                    {columnFilters.campaign.length}
-                  </Badge>
-                )}
-              </Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-between">
-                    {columnFilters.campaign.length > 0 
-                      ? `${columnFilters.campaign.length} selected` 
-                      : "Select Campaign"}
-                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[300px] p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder="Search campaign..." />
-                    <CommandList>
-                      <CommandEmpty>No campaign found.</CommandEmpty>
-                      <CommandGroup>
-                        {filterOptions.campaign.map(option => {
-                          const count = allData.filter(item => item.Campaign === option).length;
-                          const isSelected = columnFilters.campaign.includes(option);
-                          return (
-                            <CommandItem
-                              key={option}
-                              onSelect={() => {
-                                if (isSelected) {
-                                  setColumnFilters(prev => ({ ...prev, campaign: prev.campaign.filter(item => item !== option) }));
-                                } else {
-                                  setColumnFilters(prev => ({ ...prev, campaign: [...prev.campaign, option] }));
-                                }
-                              }}
-                            >
-                              <div className="flex items-center gap-2 flex-1">
-                                <Checkbox
-                                  checked={isSelected}
-                                  className="pointer-events-none"
-                                />
-                                <span className="flex-1 truncate" title={option}>{option}</span>
-                                <Badge variant="outline" className="text-xs">
-                                  {count.toLocaleString()}
-                                </Badge>
-                              </div>
-                            </CommandItem>
-                          );
-                        })}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </div>
-          </div>
-
-          {/* Active Filters Display */}
-          {hasActiveFilters && (
-            <div className="mt-6 pt-6 border-t">
-              <div className="flex items-center gap-3 mb-4">
-                <Filter className="w-5 h-5 text-muted-foreground" />
-                <h4 className="text-sm font-medium text-foreground">Active Filters</h4>
-                <Badge variant="secondary">
-                  {columnFilters.routeTo.length + columnFilters.projectType.length + columnFilters.utmSource.length + columnFilters.campaign.length} selected
-                </Badge>
+          <CardContent className="pt-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {/* Route To Filter */}
+              <div className="space-y-3">
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <Users className="w-4 h-4 text-blue-400" />
+                  Route To
+                  {columnFilters.routeTo.length > 0 && (
+                    <Badge variant="secondary" className="bg-blue-500/20 text-blue-300">
+                      {columnFilters.routeTo.length}
+                    </Badge>
+                  )}
+                </Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-between">
+                      {columnFilters.routeTo.length > 0 
+                        ? `${columnFilters.routeTo.length} selected` 
+                        : "Select Route To"}
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search route..." />
+                      <CommandList>
+                        <CommandEmpty>No route found.</CommandEmpty>
+                        <CommandGroup>
+                          {filterOptions.routeTo.map(option => {
+                            const count = allData.filter(item => item.Route_To === option).length;
+                            const isSelected = columnFilters.routeTo.includes(option);
+                            return (
+                              <CommandItem
+                                key={option}
+                                onSelect={() => {
+                                  if (isSelected) {
+                                    setColumnFilters(prev => ({ ...prev, routeTo: prev.routeTo.filter(item => item !== option) }));
+                                  } else {
+                                    setColumnFilters(prev => ({ ...prev, routeTo: [...prev.routeTo, option] }));
+                                  }
+                                }}
+                              >
+                                <div className="flex items-center gap-2 flex-1">
+                                  <Checkbox
+                                    checked={isSelected}
+                                    className="pointer-events-none"
+                                  />
+                                  <span className="flex-1">{option}</span>
+                                  <Badge variant="outline" className="text-xs">
+                                    {count.toLocaleString()}
+                                  </Badge>
+                                </div>
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {columnFilters.routeTo.map(filter => (
-                  <Badge key={filter} variant="secondary" className="bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition-colors">
-                    <Users className="w-3 h-3 mr-1" />
-                    Route: {filter}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setColumnFilters(prev => ({ ...prev, routeTo: prev.routeTo.filter(f => f !== filter) }))}
-                      className="ml-2 h-auto p-0 hover:bg-transparent"
-                    >
-                      <X className="w-3 h-3" />
+
+              {/* Project Type Filter */}
+              <div className="space-y-3">
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <Building className="w-4 h-4 text-green-400" />
+                  Project Type
+                  {columnFilters.projectType.length > 0 && (
+                    <Badge variant="secondary" className="bg-green-500/20 text-green-300">
+                      {columnFilters.projectType.length}
+                    </Badge>
+                  )}
+                </Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-between">
+                      {columnFilters.projectType.length > 0 
+                        ? `${columnFilters.projectType.length} selected` 
+                        : "Select Project Type"}
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
-                  </Badge>
-                ))}
-                {columnFilters.projectType.map(filter => (
-                  <Badge key={filter} variant="secondary" className="bg-green-500/20 text-green-300 hover:bg-green-500/30 transition-colors">
-                    <Building className="w-3 h-3 mr-1" />
-                    Type: {filter}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setColumnFilters(prev => ({ ...prev, projectType: prev.projectType.filter(f => f !== filter) }))}
-                      className="ml-2 h-auto p-0 hover:bg-transparent"
-                    >
-                      <X className="w-3 h-3" />
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search project type..." />
+                      <CommandList>
+                        <CommandEmpty>No project type found.</CommandEmpty>
+                        <CommandGroup>
+                          {filterOptions.projectType.map(option => {
+                            const count = allData.filter(item => item.Project_Type === option).length;
+                            const isSelected = columnFilters.projectType.includes(option);
+                            return (
+                              <CommandItem
+                                key={option}
+                                onSelect={() => {
+                                  if (isSelected) {
+                                    setColumnFilters(prev => ({ ...prev, projectType: prev.projectType.filter(item => item !== option) }));
+                                  } else {
+                                    setColumnFilters(prev => ({ ...prev, projectType: [...prev.projectType, option] }));
+                                  }
+                                }}
+                              >
+                                <div className="flex items-center gap-2 flex-1">
+                                  <Checkbox
+                                    checked={isSelected}
+                                    className="pointer-events-none"
+                                  />
+                                  <span className="flex-1">{option}</span>
+                                  <Badge variant="outline" className="text-xs">
+                                    {count.toLocaleString()}
+                                  </Badge>
+                                </div>
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* UTM Source Filter */}
+              <div className="space-y-3">
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <Link className="w-4 h-4 text-purple-400" />
+                  UTM Source
+                  {columnFilters.utmSource.length > 0 && (
+                    <Badge variant="secondary" className="bg-purple-500/20 text-purple-300">
+                      {columnFilters.utmSource.length}
+                    </Badge>
+                  )}
+                </Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-between">
+                      {columnFilters.utmSource.length > 0 
+                        ? `${columnFilters.utmSource.length} selected` 
+                        : "Select UTM Source"}
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
-                  </Badge>
-                ))}
-                {columnFilters.utmSource.map(filter => (
-                  <Badge key={filter} variant="secondary" className="bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors">
-                    <Link className="w-3 h-3 mr-1" />
-                    Source: {filter}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setColumnFilters(prev => ({ ...prev, utmSource: prev.utmSource.filter(f => f !== filter) }))}
-                      className="ml-2 h-auto p-0 hover:bg-transparent"
-                    >
-                      <X className="w-3 h-3" />
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search UTM source..." />
+                      <CommandList>
+                        <CommandEmpty>No UTM source found.</CommandEmpty>
+                        <CommandGroup>
+                          {filterOptions.utmSource.map(option => {
+                            const count = allData.filter(item => item.UTM_Source === option).length;
+                            const isSelected = columnFilters.utmSource.includes(option);
+                            return (
+                              <CommandItem
+                                key={option}
+                                onSelect={() => {
+                                  if (isSelected) {
+                                    setColumnFilters(prev => ({ ...prev, utmSource: prev.utmSource.filter(item => item !== option) }));
+                                  } else {
+                                    setColumnFilters(prev => ({ ...prev, utmSource: [...prev.utmSource, option] }));
+                                  }
+                                }}
+                              >
+                                <div className="flex items-center gap-2 flex-1">
+                                  <Checkbox
+                                    checked={isSelected}
+                                    className="pointer-events-none"
+                                  />
+                                  <span className="flex-1">{option}</span>
+                                  <Badge variant="outline" className="text-xs">
+                                    {count.toLocaleString()}
+                                  </Badge>
+                                </div>
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Campaign Filter */}
+              <div className="space-y-3">
+                <Label className="flex items-center gap-2 text-sm font-medium">
+                  <Megaphone className="w-4 h-4 text-orange-400" />
+                  Campaign (Top 20)
+                  {columnFilters.campaign.length > 0 && (
+                    <Badge variant="secondary" className="bg-orange-500/20 text-orange-300">
+                      {columnFilters.campaign.length}
+                    </Badge>
+                  )}
+                </Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-between">
+                      {columnFilters.campaign.length > 0 
+                        ? `${columnFilters.campaign.length} selected` 
+                        : "Select Campaign"}
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
-                  </Badge>
-                ))}
-                {columnFilters.campaign.map(filter => (
-                  <Badge key={filter} variant="secondary" className="bg-orange-500/20 text-orange-300 hover:bg-orange-500/30 transition-colors">
-                    <Megaphone className="w-3 h-3 mr-1" />
-                    Campaign: {filter}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setColumnFilters(prev => ({ ...prev, campaign: prev.campaign.filter(f => f !== filter) }))}
-                      className="ml-2 h-auto p-0 hover:bg-transparent"
-                    >
-                      <X className="w-3 h-3" />
-                    </Button>
-                  </Badge>
-                ))}
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search campaign..." />
+                      <CommandList>
+                        <CommandEmpty>No campaign found.</CommandEmpty>
+                        <CommandGroup>
+                          {filterOptions.campaign.map(option => {
+                            const count = allData.filter(item => item.Campaign === option).length;
+                            const isSelected = columnFilters.campaign.includes(option);
+                            return (
+                              <CommandItem
+                                key={option}
+                                onSelect={() => {
+                                  if (isSelected) {
+                                    setColumnFilters(prev => ({ ...prev, campaign: prev.campaign.filter(item => item !== option) }));
+                                  } else {
+                                    setColumnFilters(prev => ({ ...prev, campaign: [...prev.campaign, option] }));
+                                  }
+                                }}
+                              >
+                                <div className="flex items-center gap-2 flex-1">
+                                  <Checkbox
+                                    checked={isSelected}
+                                    className="pointer-events-none"
+                                  />
+                                  <span className="flex-1 truncate" title={option}>{option}</span>
+                                  <Badge variant="outline" className="text-xs">
+                                    {count.toLocaleString()}
+                                  </Badge>
+                                </div>
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
-          )}
+
+            {/* Active Filters Display */}
+            {hasActiveFilters && (
+              <div className="mt-6 pt-6 border-t">
+                <div className="flex items-center gap-3 mb-4">
+                  <Filter className="w-5 h-5 text-muted-foreground" />
+                  <h4 className="text-sm font-medium text-foreground">Active Filters</h4>
+                  <Badge variant="secondary">
+                    {columnFilters.routeTo.length + columnFilters.projectType.length + columnFilters.utmSource.length + columnFilters.campaign.length} selected
+                  </Badge>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {columnFilters.routeTo.map(filter => (
+                    <Badge key={filter} variant="secondary" className="bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition-colors">
+                      <Users className="w-3 h-3 mr-1" />
+                      Route: {filter}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setColumnFilters(prev => ({ ...prev, routeTo: prev.routeTo.filter(f => f !== filter) }))}
+                        className="ml-2 h-auto p-0 hover:bg-transparent"
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </Badge>
+                  ))}
+                  {columnFilters.projectType.map(filter => (
+                    <Badge key={filter} variant="secondary" className="bg-green-500/20 text-green-300 hover:bg-green-500/30 transition-colors">
+                      <Building className="w-3 h-3 mr-1" />
+                      Type: {filter}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setColumnFilters(prev => ({ ...prev, projectType: prev.projectType.filter(f => f !== filter) }))}
+                        className="ml-2 h-auto p-0 hover:bg-transparent"
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </Badge>
+                  ))}
+                  {columnFilters.utmSource.map(filter => (
+                    <Badge key={filter} variant="secondary" className="bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors">
+                      <Link className="w-3 h-3 mr-1" />
+                      Source: {filter}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setColumnFilters(prev => ({ ...prev, utmSource: prev.utmSource.filter(f => f !== filter) }))}
+                        className="ml-2 h-auto p-0 hover:bg-transparent"
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </Badge>
+                  ))}
+                  {columnFilters.campaign.map(filter => (
+                    <Badge key={filter} variant="secondary" className="bg-orange-500/20 text-orange-300 hover:bg-orange-500/30 transition-colors">
+                      <Megaphone className="w-3 h-3 mr-1" />
+                      Campaign: {filter}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setColumnFilters(prev => ({ ...prev, campaign: prev.campaign.filter(f => f !== filter) }))}
+                        className="ml-2 h-auto p-0 hover:bg-transparent"
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -866,88 +899,98 @@ export default function Home() {
         )}
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {/* Total Leads */}
-          <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-400 text-sm uppercase tracking-wider">Total Leads</p>
-                <p className="text-3xl font-bold text-white mt-2">{stats.total.toLocaleString()}</p>
-                {compareStats && (
-                  <p className={`text-sm mt-1 font-semibold ${
-                    stats.total > compareStats.total ? 'text-green-400' : 'text-red-400'
-                  }`}>
-                    {stats.total > compareStats.total ? '↑' : '↓'} {Math.abs(calculateChange(stats.total, compareStats.total)).toFixed(1)}%
-                  </p>
-                )}
-              </div>
-              <div className="bg-cyan-500/20 p-3 rounded-lg">
-                <svg className="w-8 h-8 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
+          <div className="group relative bg-gradient-to-br from-cyan-500/10 via-blue-500/10 to-cyan-500/5 border border-cyan-500/40 rounded-2xl p-6 hover:border-cyan-400/60 transition-all duration-500 hover:shadow-2xl hover:shadow-cyan-500/20 overflow-hidden backdrop-blur-sm">
+            <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/0 to-cyan-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+            <div className="relative z-10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-300 text-sm uppercase tracking-wider font-bold">Total Leads</p>
+                  <p className="text-4xl font-black text-transparent bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text mt-2">{stats.total.toLocaleString()}</p>
+                  {compareStats && (
+                    <p className={`text-sm mt-1 font-semibold ${
+                      stats.total > compareStats.total ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {stats.total > compareStats.total ? '↑' : '↓'} {Math.abs(calculateChange(stats.total, compareStats.total)).toFixed(1)}%
+                    </p>
+                  )}
+                </div>
+                <div className="bg-cyan-500/20 p-3 rounded-xl group-hover:scale-110 transition-transform duration-300">
+                  <svg className="w-8 h-8 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Struxure Leads */}
-          <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-400 text-sm uppercase tracking-wider">Struxure Leads</p>
-                <p className="text-3xl font-bold text-blue-400 mt-2">{stats.struxure.toLocaleString()}</p>
-                <p className="text-gray-500 text-xs mt-1">
-                  {stats.total > 0 ? ((stats.struxure / stats.total) * 100).toFixed(1) : 0}%
-                  {compareStats && (
-                    <span className={`ml-2 font-semibold ${
-                      stats.struxure > compareStats.struxure ? 'text-green-400' : 'text-red-400'
-                    }`}>
-                      {stats.struxure > compareStats.struxure ? '↑' : '↓'} {Math.abs(calculateChange(stats.struxure, compareStats.struxure)).toFixed(1)}%
-                    </span>
-                  )}
-                </p>
-              </div>
-              <div className="bg-blue-500/20 p-3 rounded-lg">
-                <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+          <div className="group relative bg-gradient-to-br from-blue-500/10 via-indigo-500/10 to-blue-500/5 border border-blue-500/40 rounded-2xl p-6 hover:border-blue-400/60 transition-all duration-500 hover:shadow-2xl hover:shadow-blue-500/20 overflow-hidden backdrop-blur-sm">
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/0 to-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+            <div className="relative z-10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-300 text-sm uppercase tracking-wider font-bold">Struxure Leads</p>
+                  <p className="text-4xl font-black text-transparent bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text mt-2">{stats.struxure.toLocaleString()}</p>
+                  <p className="text-gray-400 text-xs mt-1 font-medium">
+                    {stats.total > 0 ? ((stats.struxure / stats.total) * 100).toFixed(1) : 0}%
+                    {compareStats && (
+                      <span className={`ml-2 font-semibold ${
+                        stats.struxure > compareStats.struxure ? 'text-green-400' : 'text-red-400'
+                      }`}>
+                        {stats.struxure > compareStats.struxure ? '↑' : '↓'} {Math.abs(calculateChange(stats.struxure, compareStats.struxure)).toFixed(1)}%
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <div className="bg-blue-500/20 p-3 rounded-xl group-hover:scale-110 transition-transform duration-300">
+                  <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Deepwater Leads */}
-          <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-400 text-sm uppercase tracking-wider">Deepwater Leads</p>
-                <p className="text-3xl font-bold text-purple-400 mt-2">{stats.deepwater.toLocaleString()}</p>
-                <p className="text-gray-500 text-xs mt-1">
-                  {stats.total > 0 ? ((stats.deepwater / stats.total) * 100).toFixed(1) : 0}%
-                  {compareStats && (
-                    <span className={`ml-2 font-semibold ${
-                      stats.deepwater > compareStats.deepwater ? 'text-green-400' : 'text-red-400'
-                    }`}>
-                      {stats.deepwater > compareStats.deepwater ? '↑' : '↓'} {Math.abs(calculateChange(stats.deepwater, compareStats.deepwater)).toFixed(1)}%
-                    </span>
-                  )}
-                </p>
-              </div>
-              <div className="bg-purple-500/20 p-3 rounded-lg">
-                <svg className="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-                </svg>
+          <div className="group relative bg-gradient-to-br from-purple-500/10 via-pink-500/10 to-purple-500/5 border border-purple-500/40 rounded-2xl p-6 hover:border-purple-400/60 transition-all duration-500 hover:shadow-2xl hover:shadow-purple-500/20 overflow-hidden backdrop-blur-sm">
+            <div className="absolute inset-0 bg-gradient-to-br from-purple-500/0 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+            <div className="relative z-10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-300 text-sm uppercase tracking-wider font-bold">Deepwater Leads</p>
+                  <p className="text-4xl font-black text-transparent bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text mt-2">{stats.deepwater.toLocaleString()}</p>
+                  <p className="text-gray-400 text-xs mt-1 font-medium">
+                    {stats.total > 0 ? ((stats.deepwater / stats.total) * 100).toFixed(1) : 0}%
+                    {compareStats && (
+                      <span className={`ml-2 font-semibold ${
+                        stats.deepwater > compareStats.deepwater ? 'text-green-400' : 'text-red-400'
+                      }`}>
+                        {stats.deepwater > compareStats.deepwater ? '↑' : '↓'} {Math.abs(calculateChange(stats.deepwater, compareStats.deepwater)).toFixed(1)}%
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <div className="bg-purple-500/20 p-3 rounded-xl group-hover:scale-110 transition-transform duration-300">
+                  <svg className="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                  </svg>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Project Type */}
-          <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-6">
-            <div>
-              <p className="text-gray-400 text-sm uppercase tracking-wider mb-3">Project Type</p>
-              <div className="space-y-2">
+          <div className="group relative bg-gradient-to-br from-green-500/10 via-emerald-500/10 to-green-500/5 border border-green-500/40 rounded-2xl p-6 hover:border-green-400/60 transition-all duration-500 hover:shadow-2xl hover:shadow-green-500/20 overflow-hidden backdrop-blur-sm">
+            <div className="absolute inset-0 bg-gradient-to-br from-green-500/0 to-green-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+            <div className="relative z-10">
+              <p className="text-gray-300 text-sm uppercase tracking-wider mb-4 font-bold">Project Type</p>
+              <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-300">Residential</span>
+                  <span className="text-sm text-gray-200 font-medium">Residential</span>
                   <div className="text-right">
-                    <span className="text-lg font-bold text-green-400">{stats.residential.toLocaleString()}</span>
+                    <span className="text-xl font-black text-green-400">{stats.residential.toLocaleString()}</span>
                     {compareStats && (
                       <span className={`ml-2 text-xs font-semibold ${
                         stats.residential > compareStats.residential ? 'text-green-400' : 'text-red-400'
@@ -958,9 +1001,9 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-300">Commercial</span>
+                  <span className="text-sm text-gray-200 font-medium">Commercial</span>
                   <div className="text-right">
-                    <span className="text-lg font-bold text-orange-400">{stats.commercial.toLocaleString()}</span>
+                    <span className="text-xl font-black text-orange-400">{stats.commercial.toLocaleString()}</span>
                     {compareStats && (
                       <span className={`ml-2 text-xs font-semibold ${
                         stats.commercial > compareStats.commercial ? 'text-green-400' : 'text-red-400'
@@ -976,140 +1019,155 @@ export default function Home() {
         </div>
 
         {/* UTM Source Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
           {/* Organic/Direct */}
-          <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-400 text-sm uppercase tracking-wider">Organic/Direct</p>
-                <p className="text-3xl font-bold text-cyan-400 mt-2">{stats.organic.toLocaleString()}</p>
-                {compareStats && (
-                  <p className={`text-sm mt-1 font-semibold ${
-                    stats.organic > compareStats.organic ? 'text-green-400' : 'text-red-400'
-                  }`}>
-                    {stats.organic > compareStats.organic ? '↑' : '↓'} {Math.abs(calculateChange(stats.organic, compareStats.organic)).toFixed(1)}%
-                  </p>
-                )}
-              </div>
-              <div className="bg-cyan-500/20 p-3 rounded-lg">
-                <svg className="w-8 h-8 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-                </svg>
+          <div className="group relative bg-gradient-to-br from-cyan-500/10 to-teal-500/10 border border-cyan-500/40 rounded-2xl p-6 hover:border-cyan-400/60 transition-all duration-500 hover:shadow-2xl hover:shadow-cyan-500/20 overflow-hidden backdrop-blur-sm">
+            <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/0 to-cyan-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+            <div className="relative z-10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-300 text-sm uppercase tracking-wider font-bold">Organic/Direct</p>
+                  <p className="text-4xl font-black text-transparent bg-gradient-to-r from-cyan-400 to-teal-400 bg-clip-text mt-2">{stats.organic.toLocaleString()}</p>
+                  {compareStats && (
+                    <p className={`text-sm mt-1 font-semibold ${
+                      stats.organic > compareStats.organic ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {stats.organic > compareStats.organic ? '↑' : '↓'} {Math.abs(calculateChange(stats.organic, compareStats.organic)).toFixed(1)}%
+                    </p>
+                  )}
+                </div>
+                <div className="bg-cyan-500/20 p-3 rounded-xl group-hover:scale-110 transition-transform duration-300">
+                  <svg className="w-8 h-8 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                  </svg>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Facebook */}
-          <div className="bg-pink-500/10 border border-pink-500/30 rounded-xl p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-400 text-sm uppercase tracking-wider">Facebook</p>
-                <p className="text-3xl font-bold text-pink-400 mt-2">{stats.facebook.toLocaleString()}</p>
-                {compareStats && (
-                  <p className={`text-sm mt-1 font-semibold ${
-                    stats.facebook > compareStats.facebook ? 'text-green-400' : 'text-red-400'
-                  }`}>
-                    {stats.facebook > compareStats.facebook ? '↑' : '↓'} {Math.abs(calculateChange(stats.facebook, compareStats.facebook)).toFixed(1)}%
-                  </p>
-                )}
-              </div>
-              <div className="bg-pink-500/20 p-3 rounded-lg">
-                <svg className="w-8 h-8 text-pink-400" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-                </svg>
+          <div className="group relative bg-gradient-to-br from-pink-500/10 to-rose-500/10 border border-pink-500/40 rounded-2xl p-6 hover:border-pink-400/60 transition-all duration-500 hover:shadow-2xl hover:shadow-pink-500/20 overflow-hidden backdrop-blur-sm">
+            <div className="absolute inset-0 bg-gradient-to-br from-pink-500/0 to-pink-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+            <div className="relative z-10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-300 text-sm uppercase tracking-wider font-bold">Facebook</p>
+                  <p className="text-4xl font-black text-transparent bg-gradient-to-r from-pink-400 to-rose-400 bg-clip-text mt-2">{stats.facebook.toLocaleString()}</p>
+                  {compareStats && (
+                    <p className={`text-sm mt-1 font-semibold ${
+                      stats.facebook > compareStats.facebook ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {stats.facebook > compareStats.facebook ? '↑' : '↓'} {Math.abs(calculateChange(stats.facebook, compareStats.facebook)).toFixed(1)}%
+                    </p>
+                  )}
+                </div>
+                <div className="bg-pink-500/20 p-3 rounded-xl group-hover:scale-110 transition-transform duration-300">
+                  <svg className="w-8 h-8 text-pink-400" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                  </svg>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Google */}
-          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-400 text-sm uppercase tracking-wider">Google</p>
-                <p className="text-3xl font-bold text-yellow-400 mt-2">{stats.google.toLocaleString()}</p>
-                {compareStats && (
-                  <p className={`text-sm mt-1 font-semibold ${
-                    stats.google > compareStats.google ? 'text-green-400' : 'text-red-400'
-                  }`}>
-                    {stats.google > compareStats.google ? '↑' : '↓'} {Math.abs(calculateChange(stats.google, compareStats.google)).toFixed(1)}%
-                  </p>
-                )}
-              </div>
-              <div className="bg-yellow-500/20 p-3 rounded-lg">
-                <svg className="w-8 h-8 text-yellow-400" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                </svg>
+          <div className="group relative bg-gradient-to-br from-yellow-500/10 to-amber-500/10 border border-yellow-500/40 rounded-2xl p-6 hover:border-yellow-400/60 transition-all duration-500 hover:shadow-2xl hover:shadow-yellow-500/20 overflow-hidden backdrop-blur-sm">
+            <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/0 to-yellow-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+            <div className="relative z-10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-300 text-sm uppercase tracking-wider font-bold">Google</p>
+                  <p className="text-4xl font-black text-transparent bg-gradient-to-r from-yellow-400 to-amber-400 bg-clip-text mt-2">{stats.google.toLocaleString()}</p>
+                  {compareStats && (
+                    <p className={`text-sm mt-1 font-semibold ${
+                      stats.google > compareStats.google ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {stats.google > compareStats.google ? '↑' : '↓'} {Math.abs(calculateChange(stats.google, compareStats.google)).toFixed(1)}%
+                    </p>
+                  )}
+                </div>
+                <div className="bg-yellow-500/20 p-3 rounded-xl group-hover:scale-110 transition-transform duration-300">
+                  <svg className="w-8 h-8 text-yellow-400" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                  </svg>
+                </div>
               </div>
             </div>
           </div>
 
           {/* YouTube */}
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-400 text-sm uppercase tracking-wider">YouTube</p>
-                <p className="text-3xl font-bold text-red-400 mt-2">{stats.youtube.toLocaleString()}</p>
-                {compareStats && (
-                  <p className={`text-sm mt-1 font-semibold ${
-                    stats.youtube > compareStats.youtube ? 'text-green-400' : 'text-red-400'
-                  }`}>
-                    {stats.youtube > compareStats.youtube ? '↑' : '↓'} {Math.abs(calculateChange(stats.youtube, compareStats.youtube)).toFixed(1)}%
-                  </p>
-                )}
-              </div>
-              <div className="bg-red-500/20 p-3 rounded-lg">
-                <svg className="w-8 h-8 text-red-400" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                </svg>
+          <div className="group relative bg-gradient-to-br from-red-500/10 to-rose-500/10 border border-red-500/40 rounded-2xl p-6 hover:border-red-400/60 transition-all duration-500 hover:shadow-2xl hover:shadow-red-500/20 overflow-hidden backdrop-blur-sm">
+            <div className="absolute inset-0 bg-gradient-to-br from-red-500/0 to-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+            <div className="relative z-10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-300 text-sm uppercase tracking-wider font-bold">YouTube</p>
+                  <p className="text-4xl font-black text-transparent bg-gradient-to-r from-red-400 to-rose-400 bg-clip-text mt-2">{stats.youtube.toLocaleString()}</p>
+                  {compareStats && (
+                    <p className={`text-sm mt-1 font-semibold ${
+                      stats.youtube > compareStats.youtube ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {stats.youtube > compareStats.youtube ? '↑' : '↓'} {Math.abs(calculateChange(stats.youtube, compareStats.youtube)).toFixed(1)}%
+                    </p>
+                  )}
+                </div>
+                <div className="bg-red-500/20 p-3 rounded-xl group-hover:scale-110 transition-transform duration-300">
+                  <svg className="w-8 h-8 text-red-400" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                  </svg>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Error Display */}
-        {error && (
-          <div className="mb-6 bg-red-900/30 border border-red-500/50 text-red-300 px-6 py-4 rounded-lg">
-            <strong className="font-medium">Error:</strong> {error}
-          </div>
-        )}
-
-        {/* Loading State */}
-        {isLoading && (
-          <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500 mx-auto"></div>
-            <p className="text-gray-400 mt-4">Loading leads...</p>
-          </div>
-        )}
-
         {/* Table */}
-        {!isLoading && paginatedData.length > 0 && (
-          <div className="bg-slate-800/50 rounded-lg border border-slate-700 overflow-hidden">
-            <div className="overflow-x-auto">
+        {paginatedData.length > 0 && (
+          <div className="bg-slate-900/50 backdrop-blur-sm rounded-2xl border border-slate-700/50 overflow-hidden shadow-2xl">
+            {/* Table Header with Refresh Button */}
+            <div className="bg-gradient-to-r from-slate-800 to-slate-700 px-6 py-4 border-b border-slate-700/50 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Leads Table
+              </h3>
+              <Button
+                onClick={handleSyncData}
+                disabled={isSyncing}
+                size="sm"
+                className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white shadow-lg"
+              >
+                <RefreshCw className={`w-3 h-3 mr-1.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                {isSyncing ? 'Refreshing...' : 'Refresh Data'}
+              </Button>
+            </div>
+            <div className="overflow-x-auto custom-scrollbar">
               <table className="w-full">
-                <thead className="bg-slate-700/50">
+                <thead className="bg-gradient-to-r from-slate-800 to-slate-700 sticky top-0 z-10 shadow-lg">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider">Timestamp</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider">Name</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider">Email</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider">Phone</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider">City, State</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider">Route To</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider">Project Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-200 uppercase tracking-wider">Timestamp</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-200 uppercase tracking-wider">Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-200 uppercase tracking-wider">Email</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-200 uppercase tracking-wider">Phone</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-200 uppercase tracking-wider">City, State</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-200 uppercase tracking-wider">Route To</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-200 uppercase tracking-wider">Project Type</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-700">
+                <tbody className="divide-y divide-slate-700/50 bg-slate-900/30">
                   {paginatedData.map((row, idx) => (
-                    <tr key={idx} className="hover:bg-slate-700/30 transition-colors">
-                      <td className="px-4 py-3 text-sm text-gray-300">{row.Timestamp}</td>
-                      <td className="px-4 py-3 text-sm text-gray-300">{row.First_Name} {row.Last_Name}</td>
-                      <td className="px-4 py-3 text-sm text-gray-300">{row.Email}</td>
-                      <td className="px-4 py-3 text-sm text-gray-300">{row.Phone}</td>
-                      <td className="px-4 py-3 text-sm text-gray-300">{row.City}, {row.State}</td>
-                      <td className="px-4 py-3 text-sm text-gray-300">{row.Route_To}</td>
-                      <td className="px-4 py-3 text-sm text-gray-300">{row.Project_Type}</td>
+                    <tr key={idx} className="hover:bg-gradient-to-r hover:from-slate-800/50 hover:to-slate-800/30 transition-all duration-200">
+                      <td className="px-4 py-3 text-sm text-gray-300 font-medium">{row.Timestamp}</td>
+                      <td className="px-4 py-3 text-sm text-white font-bold">{row.First_Name} {row.Last_Name}</td>
+                      <td className="px-4 py-3 text-sm text-gray-300 font-medium">{row.Email}</td>
+                      <td className="px-4 py-3 text-sm text-gray-300 font-medium">{row.Phone}</td>
+                      <td className="px-4 py-3 text-sm text-gray-300 font-medium">{row.City}, {row.State}</td>
+                      <td className="px-4 py-3 text-sm text-gray-300 font-medium">{row.Route_To}</td>
+                      <td className="px-4 py-3 text-sm text-gray-300 font-medium">{row.Project_Type}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1117,34 +1175,35 @@ export default function Home() {
             </div>
 
             {/* Pagination Controls */}
-            <div className="bg-slate-700/30 px-6 py-4 flex items-center justify-between border-t border-slate-700 flex-wrap gap-4">
+            <div className="bg-gradient-to-r from-slate-800/50 to-slate-700/50 px-6 py-5 flex items-center justify-between border-t border-slate-700/50 flex-wrap gap-4">
               <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-400">Rows per page:</span>
+                <span className="text-sm text-gray-300 font-medium">Rows per page:</span>
                 <select
                   value={itemsPerPage}
                   onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                  className="px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white text-sm focus:border-cyan-500 focus:outline-none cursor-pointer"
+                  className="px-4 py-2 bg-slate-900/50 border border-slate-600/50 rounded-xl text-white text-sm font-medium focus:border-cyan-500 focus:outline-none cursor-pointer hover:bg-slate-800/50 transition-colors"
                 >
                   <option value={25}>25</option>
                   <option value={250}>250</option>
                   <option value={500}>500</option>
                 </select>
               </div>
-              <div className="text-sm text-gray-400">
-                Page {currentPage} of {totalPages} ({filteredData.length.toLocaleString()} total)
+              <div className="text-sm text-gray-200 font-medium bg-slate-900/30 px-4 py-2 rounded-xl">
+                Page <span className="text-cyan-400 font-bold">{currentPage}</span> of <span className="text-gray-300">{totalPages}</span> 
+                <span className="text-gray-400 ml-2">({filteredData.length.toLocaleString()} total)</span>
               </div>
               <div className="flex gap-2">
                 <button
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
-                  className="px-4 py-2 bg-slate-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-600 transition-colors"
+                  className="px-5 py-2.5 bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 font-medium shadow-lg disabled:shadow-none"
                 >
                   Previous
                 </button>
                 <button
                   onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                   disabled={currentPage === totalPages}
-                  className="px-4 py-2 bg-cyan-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-cyan-500 transition-colors"
+                  className="px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 font-medium shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/50 disabled:shadow-none"
                 >
                   Next
                 </button>
@@ -1154,7 +1213,7 @@ export default function Home() {
         )}
 
         {/* No Data */}
-        {!isLoading && paginatedData.length === 0 && !error && (
+        {paginatedData.length === 0 && !error && (
           <div className="text-center py-12">
             <div className="text-gray-400 text-lg mb-2">No data found</div>
             <div className="text-gray-500 text-sm">
@@ -1170,8 +1229,7 @@ export default function Home() {
             )}
           </div>
         )}
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }
-

@@ -7,13 +7,16 @@ const FULL_CACHE_KEY = 'bigquery_leads_full_cache';
 
 /**
  * Query all data from BigQuery and cache it
+ * ⚠️ THIS FUNCTION CALLS BIGQUERY - Only call when cache refresh is needed
  */
 async function fetchAndCacheFromBigQuery() {
   const { BigQuery } = await import('@google-cloud/bigquery');
   const fs = await import('fs');
   const path = await import('path');
   
-  console.log('📥 Cache miss - fetching ALL data from BigQuery...');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('📡 [BIGQUERY] CALLING BIGQUERY API - Fetching ALL data...');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
   const credentialsPath = path.join(process.cwd(), 'bigquery-credentials.json');
   const credentialsContent = fs.readFileSync(credentialsPath, 'utf8');
@@ -29,8 +32,11 @@ async function fetchAndCacheFromBigQuery() {
     FROM \`oceanic-sky-474609-v5.lead_generation.struxure_leads\`
   `;
 
+  console.log('📡 [BIGQUERY] Executing SQL query...');
+  const queryStartTime = Date.now();
   const [rows] = await bigquery.query(query);
-  console.log(`✅ Fetched ${rows.length.toLocaleString()} rows from BigQuery`);
+  const queryTime = Date.now() - queryStartTime;
+  console.log(`✅ [BIGQUERY] Fetched ${rows.length.toLocaleString()} rows from BigQuery in ${queryTime}ms`);
 
   // Analyze timestamp formats before normalization
   const formatAnalysis = analyzeTimestampFormats(rows);
@@ -60,22 +66,33 @@ async function fetchAndCacheFromBigQuery() {
 }
 
 /**
- * Get all data (from Redis or BigQuery)
+ * Get all data from Redis cache
+ * Returns empty array if Redis is empty (triggers BigQuery fallback)
  */
 async function getAllData(): Promise<LeadData[]> {
-  // Try Redis first
+  console.log('🔍 [REDIS CHECK] Attempting to fetch data from Redis cache...');
+  
   try {
     const cached = await getCachedData(FULL_CACHE_KEY);
-    if (cached && Array.isArray(cached)) {
-      console.log(`✅ Using cached data from Redis (${cached.length.toLocaleString()} rows)`);
+    if (cached && Array.isArray(cached) && cached.length > 0) {
+      console.log(`✅ [REDIS HIT] Successfully retrieved ${cached.length.toLocaleString()} rows from Redis cache`);
+      console.log(`📊 [REDIS HIT] NO BigQuery call needed - using cached data`);
       return cached as LeadData[];
     }
+    
+    // Redis is empty - will trigger BigQuery fallback
+    console.warn('⚠️ [REDIS MISS] Redis cache is empty or returned no data');
+    console.log('💡 [INFO] Returning empty array - will trigger BigQuery fallback');
+    
+    return [];
+    
   } catch (cacheError) {
-    console.warn('⚠️ Redis read error, falling back to BigQuery:', cacheError);
+    console.error('❌ [REDIS ERROR] Failed to connect to Redis:', cacheError);
+    console.warn('⚠️ [WARNING] Redis connection failed - will trigger BigQuery fallback');
+    
+    // Return empty array - will trigger BigQuery fallback
+    return [];
   }
-
-  // Fallback to BigQuery
-  return await fetchAndCacheFromBigQuery();
 }
 
 /**
@@ -97,26 +114,65 @@ export async function GET(request: NextRequest) {
     // For pagination, cap at 500
     const limit = requestedLimit >= 100000 ? requestedLimit : Math.min(Math.max(1, requestedLimit), 500);
 
-    console.log('📥 BigQuery API Request:', { page, limit, requestedLimit, noCache });
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📥 [API REQUEST] /api/bigquery-data');
+    console.log('📋 [PARAMS]', { page, limit, requestedLimit, noCache });
+    console.log('🎯 [STRATEGY] Redis-First Architecture:');
+    console.log('   1️⃣ Check Redis cache first');
+    console.log('   2️⃣ If Redis has data → Use Redis (NO BigQuery call)');
+    console.log('   3️⃣ If Redis empty → Fallback to BigQuery (auto-cache result)');
+    if (noCache) {
+      console.log('⚠️ [OVERRIDE] nocache=true detected - will skip Redis and query BigQuery directly');
+    }
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     // Get all data (from Redis cache or BigQuery)
     let allData: LeadData[];
+    const startTime = Date.now();
     
     if (noCache) {
       // Force refresh from BigQuery
-      console.log('🔄 nocache=true, forcing BigQuery fetch...');
+      console.log('⚠️ [BIGQUERY CALL] nocache=true parameter detected - forcing BigQuery fetch...');
+      console.log('📡 [BIGQUERY CALL] Querying BigQuery directly and updating Redis cache...');
       allData = await fetchAndCacheFromBigQuery();
+      console.log(`✅ [BIGQUERY COMPLETE] Fetched ${allData.length} rows from BigQuery and cached in Redis`);
     } else {
-      // Try cache first, fallback to BigQuery
+      // REDIS-FIRST with BigQuery fallback
+      console.log('🔍 [REDIS FIRST] Checking Redis cache first...');
       allData = await getAllData();
+      
+      // If Redis is empty, fallback to BigQuery automatically
+      if (allData.length === 0) {
+        console.warn('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.warn('⚠️ [REDIS MISS] Redis cache is empty - falling back to BigQuery');
+        console.warn('📡 [BIGQUERY FALLBACK] Automatically calling BigQuery to fetch data');
+        console.warn('💡 [INFO] This is a fallback - future requests will use Redis cache');
+        console.warn('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        
+        // Fallback to BigQuery and cache the result
+        allData = await fetchAndCacheFromBigQuery();
+        console.log(`✅ [BIGQUERY FALLBACK] Fetched ${allData.length} rows from BigQuery and cached in Redis`);
+      }
     }
+    
+    const dataLoadTime = Date.now() - startTime;
+    console.log(`⏱️ [TIMING] Data load time: ${dataLoadTime}ms`);
 
     // Calculate pagination
+    const paginationStart = Date.now();
     const totalCount = allData.length;
     const offset = (page - 1) * limit;
     const paginatedData = allData.slice(offset, offset + limit);
+    const paginationTime = Date.now() - paginationStart;
 
-    console.log(`✅ Returning ${paginatedData.length} rows (page ${page} of ${Math.ceil(totalCount / limit)})`);
+    // Determine the actual source that was used
+    const dataSource = noCache ? 'BigQuery (forced)' : 'Redis cache';
+    
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`✅ [SUCCESS] Returning ${paginatedData.length.toLocaleString()} rows (page ${page} of ${Math.ceil(totalCount / limit)})`);
+    console.log(`📊 [SOURCE] Data served from: ${dataSource}`);
+    console.log(`⏱️ [TIMING] Total request time: ${dataLoadTime}ms | Pagination: ${paginationTime}ms`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     return NextResponse.json({
       success: true,
@@ -128,7 +184,7 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('❌ BigQuery API Error:', error);
+    console.error('❌ Data API Error:', error);
     
     return NextResponse.json(
       {

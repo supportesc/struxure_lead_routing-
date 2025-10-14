@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     const filters = parseFilters(searchParams);
     const noCache = searchParams.get('nocache') === 'true';
 
-    console.log('📊 BigQuery Stats API Request:', { filters, noCache });
+    console.log('📊 Stats API Request:', { filters, noCache, source: noCache ? 'BigQuery (forced)' : 'Redis cache first' });
 
     // Generate cache key
     const cacheKey = generateCacheKey(filters);
@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
       try {
         const cached = await getCachedData(cacheKey);
         if (cached) {
-          console.log('✅ Returning cached BigQuery stats');
+          console.log('✅ Returning cached stats from Redis');
           return NextResponse.json({
             success: true,
             ...cached,
