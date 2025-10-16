@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
-import { Filter, X, Calendar, BarChart3, Users, Building, Link, Megaphone, ChevronDown, Check, RefreshCw } from 'lucide-react';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Filter, X, Calendar, BarChart3, Users, Building, Link, Megaphone, ChevronDown, Check, RefreshCw, Settings2, SlidersHorizontal } from 'lucide-react';
 
 type DateRange = {
   start: string;
@@ -26,6 +27,8 @@ export default function Home() {
   const [compareDateFilter, setCompareDateFilter] = useState<DateRange | null>(null);
   const [showCompare, setShowCompare] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [dateFilterOpen, setDateFilterOpen] = useState(false);
+  const [columnFilterOpen, setColumnFilterOpen] = useState(false);
 
   const handleSyncData = async () => {
     try {
@@ -421,459 +424,542 @@ export default function Home() {
           </Button>
         </div>
 
-        {/* Date Filter */}
-        <Card className="mb-8 bg-slate-900/40 backdrop-blur-xl border-slate-700/50 shadow-2xl">
-          <CardHeader className="border-b border-slate-700/50">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-3 text-xl">
-                <div className="p-2 bg-cyan-500/10 rounded-xl">
-                  <Calendar className="w-6 h-6 text-cyan-400" />
-                </div>
-                <span className="bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">Date Filter</span>
-              </CardTitle>
-              {dateFilter && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleClearDateFilter}
-                  className="flex items-center gap-2 shadow-lg hover:shadow-red-500/50 transition-all duration-300"
-                >
-                  <X className="w-4 h-4" />
-                  Clear Date Filter
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="pt-6">
-            {/* Quick Presets */}
-            <div className="flex items-center justify-center gap-3 mb-6 flex-wrap">
-              <span className="text-sm text-gray-400 font-semibold">Quick Select:</span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => applyPresetFilter(7)}
-                className="flex items-center gap-2 bg-slate-800/50 border-slate-600/50 hover:bg-cyan-500/10 hover:border-cyan-500/50 hover:text-cyan-400 transition-all duration-300"
+        {/* Filter Controls - Clean Button Interface */}
+        <div className="mb-8 flex items-center gap-4 flex-wrap">
+          {/* Date Filter Button */}
+          <Sheet open={dateFilterOpen} onOpenChange={setDateFilterOpen}>
+            <SheetTrigger asChild>
+              <Button 
+                className="bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white shadow-lg hover:shadow-cyan-500/30 transition-all duration-300 border border-slate-600/50"
+                size="lg"
               >
-                Last 7 Days
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => applyPresetFilter(30)}
-                className="flex items-center gap-2 bg-slate-800/50 border-slate-600/50 hover:bg-cyan-500/10 hover:border-cyan-500/50 hover:text-cyan-400 transition-all duration-300"
-              >
-                Last 30 Days
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => applyPresetFilter(60)}
-                className="flex items-center gap-2 bg-slate-800/50 border-slate-600/50 hover:bg-cyan-500/10 hover:border-cyan-500/50 hover:text-cyan-400 transition-all duration-300"
-              >
-                Last 60 Days
-              </Button>
-            </div>
-
-            {/* Custom Date Range */}
-            <div className="flex items-center justify-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="start-date" className="text-sm text-muted-foreground">From:</Label>
-                <Input
-                  id="start-date"
-                  type="date"
-                  value={dateFilter?.start || ''}
-                  onChange={(e) => setDateFilter(prev => ({ start: e.target.value, end: prev?.end || '' }))}
-                  className="w-auto"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Label htmlFor="end-date" className="text-sm text-muted-foreground">To:</Label>
-                <Input
-                  id="end-date"
-                  type="date"
-                  value={dateFilter?.end || ''}
-                  onChange={(e) => setDateFilter(prev => ({ start: prev?.start || '', end: e.target.value }))}
-                  className="w-auto"
-                />
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowCompare(!showCompare)}
-                className="flex items-center gap-2"
-              >
-                <BarChart3 className="w-4 h-4" />
-                {showCompare ? 'Hide Compare' : 'Compare Periods'}
-              </Button>
-            </div>
-
-            {/* Compare Date Range */}
-            {showCompare && (
-              <div className="mt-4 pt-4 border-t border-purple-500/20">
-                <div className="flex items-center justify-center gap-4 flex-wrap">
-                  <span className="text-sm text-purple-300 font-semibold">Compare Period:</span>
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm text-gray-400">From:</label>
-                    <input
-                      type="date"
-                      value={compareDateFilter?.start || ''}
-                      onChange={(e) => setCompareDateFilter(prev => ({ start: e.target.value, end: prev?.end || '' }))}
-                      className="px-3 py-2 bg-purple-900/20 border border-purple-500/30 rounded-lg text-white text-sm focus:border-purple-500 focus:outline-none"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm text-gray-400">To:</label>
-                    <input
-                      type="date"
-                      value={compareDateFilter?.end || ''}
-                      onChange={(e) => setCompareDateFilter(prev => ({ start: prev?.start || '', end: e.target.value }))}
-                      className="px-3 py-2 bg-purple-900/20 border border-purple-500/30 rounded-lg text-white text-sm focus:border-purple-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Column Filters */}
-        <Card className="mb-8 bg-slate-900/40 backdrop-blur-xl border-slate-700/50 shadow-2xl">
-          <CardHeader className="border-b border-slate-700/50">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-3 text-xl">
-                <div className="p-2 bg-cyan-500/10 rounded-xl">
-                  <Filter className="w-6 h-6 text-cyan-400" />
-                </div>
-                <span className="bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">Column Filters</span>
-              </CardTitle>
-              {hasActiveFilters && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleClearAllFilters}
-                  className="flex items-center gap-2 shadow-lg hover:shadow-red-500/50 transition-all duration-300"
-                >
-                  <X className="w-4 h-4" />
-                  Clear All Filters
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent className="pt-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {/* Route To Filter */}
-              <div className="space-y-3">
-                <Label className="flex items-center gap-2 text-sm font-medium">
-                  <Users className="w-4 h-4 text-blue-400" />
-                  Route To
-                  {columnFilters.routeTo.length > 0 && (
-                    <Badge variant="secondary" className="bg-blue-500/20 text-blue-300">
-                      {columnFilters.routeTo.length}
-                    </Badge>
-                  )}
-                </Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-between">
-                      {columnFilters.routeTo.length > 0 
-                        ? `${columnFilters.routeTo.length} selected` 
-                        : "Select Route To"}
-                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[300px] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Search route..." />
-                      <CommandList>
-                        <CommandEmpty>No route found.</CommandEmpty>
-                        <CommandGroup>
-                          {filterOptions.routeTo.map(option => {
-                            const count = allData.filter(item => item.Route_To === option).length;
-                            const isSelected = columnFilters.routeTo.includes(option);
-                            return (
-                              <CommandItem
-                                key={option}
-                                onSelect={() => {
-                                  if (isSelected) {
-                                    setColumnFilters(prev => ({ ...prev, routeTo: prev.routeTo.filter(item => item !== option) }));
-                                  } else {
-                                    setColumnFilters(prev => ({ ...prev, routeTo: [...prev.routeTo, option] }));
-                                  }
-                                }}
-                              >
-                                <div className="flex items-center gap-2 flex-1">
-                                  <Checkbox
-                                    checked={isSelected}
-                                    className="pointer-events-none"
-                                  />
-                                  <span className="flex-1">{option}</span>
-                                  <Badge variant="outline" className="text-xs">
-                                    {count.toLocaleString()}
-                                  </Badge>
-                                </div>
-                              </CommandItem>
-                            );
-                          })}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              {/* Project Type Filter */}
-              <div className="space-y-3">
-                <Label className="flex items-center gap-2 text-sm font-medium">
-                  <Building className="w-4 h-4 text-green-400" />
-                  Project Type
-                  {columnFilters.projectType.length > 0 && (
-                    <Badge variant="secondary" className="bg-green-500/20 text-green-300">
-                      {columnFilters.projectType.length}
-                    </Badge>
-                  )}
-                </Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-between">
-                      {columnFilters.projectType.length > 0 
-                        ? `${columnFilters.projectType.length} selected` 
-                        : "Select Project Type"}
-                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[300px] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Search project type..." />
-                      <CommandList>
-                        <CommandEmpty>No project type found.</CommandEmpty>
-                        <CommandGroup>
-                          {filterOptions.projectType.map(option => {
-                            const count = allData.filter(item => item.Project_Type === option).length;
-                            const isSelected = columnFilters.projectType.includes(option);
-                            return (
-                              <CommandItem
-                                key={option}
-                                onSelect={() => {
-                                  if (isSelected) {
-                                    setColumnFilters(prev => ({ ...prev, projectType: prev.projectType.filter(item => item !== option) }));
-                                  } else {
-                                    setColumnFilters(prev => ({ ...prev, projectType: [...prev.projectType, option] }));
-                                  }
-                                }}
-                              >
-                                <div className="flex items-center gap-2 flex-1">
-                                  <Checkbox
-                                    checked={isSelected}
-                                    className="pointer-events-none"
-                                  />
-                                  <span className="flex-1">{option}</span>
-                                  <Badge variant="outline" className="text-xs">
-                                    {count.toLocaleString()}
-                                  </Badge>
-                                </div>
-                              </CommandItem>
-                            );
-                          })}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              {/* UTM Source Filter */}
-              <div className="space-y-3">
-                <Label className="flex items-center gap-2 text-sm font-medium">
-                  <Link className="w-4 h-4 text-purple-400" />
-                  UTM Source
-                  {columnFilters.utmSource.length > 0 && (
-                    <Badge variant="secondary" className="bg-purple-500/20 text-purple-300">
-                      {columnFilters.utmSource.length}
-                    </Badge>
-                  )}
-                </Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-between">
-                      {columnFilters.utmSource.length > 0 
-                        ? `${columnFilters.utmSource.length} selected` 
-                        : "Select UTM Source"}
-                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[300px] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Search UTM source..." />
-                      <CommandList>
-                        <CommandEmpty>No UTM source found.</CommandEmpty>
-                        <CommandGroup>
-                          {filterOptions.utmSource.map(option => {
-                            const count = allData.filter(item => item.UTM_Source === option).length;
-                            const isSelected = columnFilters.utmSource.includes(option);
-                            return (
-                              <CommandItem
-                                key={option}
-                                onSelect={() => {
-                                  if (isSelected) {
-                                    setColumnFilters(prev => ({ ...prev, utmSource: prev.utmSource.filter(item => item !== option) }));
-                                  } else {
-                                    setColumnFilters(prev => ({ ...prev, utmSource: [...prev.utmSource, option] }));
-                                  }
-                                }}
-                              >
-                                <div className="flex items-center gap-2 flex-1">
-                                  <Checkbox
-                                    checked={isSelected}
-                                    className="pointer-events-none"
-                                  />
-                                  <span className="flex-1">{option}</span>
-                                  <Badge variant="outline" className="text-xs">
-                                    {count.toLocaleString()}
-                                  </Badge>
-                                </div>
-                              </CommandItem>
-                            );
-                          })}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              {/* Campaign Filter */}
-              <div className="space-y-3">
-                <Label className="flex items-center gap-2 text-sm font-medium">
-                  <Megaphone className="w-4 h-4 text-orange-400" />
-                  Campaign (Top 20)
-                  {columnFilters.campaign.length > 0 && (
-                    <Badge variant="secondary" className="bg-orange-500/20 text-orange-300">
-                      {columnFilters.campaign.length}
-                    </Badge>
-                  )}
-                </Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-between">
-                      {columnFilters.campaign.length > 0 
-                        ? `${columnFilters.campaign.length} selected` 
-                        : "Select Campaign"}
-                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[300px] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Search campaign..." />
-                      <CommandList>
-                        <CommandEmpty>No campaign found.</CommandEmpty>
-                        <CommandGroup>
-                          {filterOptions.campaign.map(option => {
-                            const count = allData.filter(item => item.Campaign === option).length;
-                            const isSelected = columnFilters.campaign.includes(option);
-                            return (
-                              <CommandItem
-                                key={option}
-                                onSelect={() => {
-                                  if (isSelected) {
-                                    setColumnFilters(prev => ({ ...prev, campaign: prev.campaign.filter(item => item !== option) }));
-                                  } else {
-                                    setColumnFilters(prev => ({ ...prev, campaign: [...prev.campaign, option] }));
-                                  }
-                                }}
-                              >
-                                <div className="flex items-center gap-2 flex-1">
-                                  <Checkbox
-                                    checked={isSelected}
-                                    className="pointer-events-none"
-                                  />
-                                  <span className="flex-1 truncate" title={option}>{option}</span>
-                                  <Badge variant="outline" className="text-xs">
-                                    {count.toLocaleString()}
-                                  </Badge>
-                                </div>
-                              </CommandItem>
-                            );
-                          })}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </div>
-
-            {/* Active Filters Display */}
-            {hasActiveFilters && (
-              <div className="mt-6 pt-6 border-t">
-                <div className="flex items-center gap-3 mb-4">
-                  <Filter className="w-5 h-5 text-muted-foreground" />
-                  <h4 className="text-sm font-medium text-foreground">Active Filters</h4>
-                  <Badge variant="secondary">
-                    {columnFilters.routeTo.length + columnFilters.projectType.length + columnFilters.utmSource.length + columnFilters.campaign.length} selected
+                <Calendar className="w-5 h-5 mr-2" />
+                Date Filter
+                {dateFilter && (
+                  <Badge className="ml-2 bg-cyan-500/20 text-cyan-300 border-cyan-500/30">
+                    Active
                   </Badge>
+                )}
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-[500px] sm:w-[600px] bg-slate-900/95 backdrop-blur-xl border-slate-700/50 overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle className="flex items-center gap-3 text-2xl">
+                  <div className="p-2 bg-cyan-500/10 rounded-xl">
+                    <Calendar className="w-6 h-6 text-cyan-400" />
+                  </div>
+                  <span className="bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">Date Filter</span>
+                </SheetTitle>
+                <SheetDescription className="text-gray-400">
+                  Filter leads by date range or compare different periods
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="mt-8 space-y-6">
+                {/* Quick Presets */}
+                <div>
+                  <Label className="text-sm text-gray-400 font-semibold mb-3 block">Quick Select:</Label>
+                  <div className="flex flex-col gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        applyPresetFilter(7);
+                        setDateFilterOpen(false);
+                      }}
+                      className="w-full justify-start bg-slate-800/50 border-slate-600/50 hover:bg-cyan-500/10 hover:border-cyan-500/50 hover:text-cyan-400 transition-all duration-300"
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Last 7 Days
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        applyPresetFilter(30);
+                        setDateFilterOpen(false);
+                      }}
+                      className="w-full justify-start bg-slate-800/50 border-slate-600/50 hover:bg-cyan-500/10 hover:border-cyan-500/50 hover:text-cyan-400 transition-all duration-300"
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Last 30 Days
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        applyPresetFilter(60);
+                        setDateFilterOpen(false);
+                      }}
+                      className="w-full justify-start bg-slate-800/50 border-slate-600/50 hover:bg-cyan-500/10 hover:border-cyan-500/50 hover:text-cyan-400 transition-all duration-300"
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Last 60 Days
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {columnFilters.routeTo.map(filter => (
-                    <Badge key={filter} variant="secondary" className="bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition-colors">
-                      <Users className="w-3 h-3 mr-1" />
-                      Route: {filter}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setColumnFilters(prev => ({ ...prev, routeTo: prev.routeTo.filter(f => f !== filter) }))}
-                        className="ml-2 h-auto p-0 hover:bg-transparent"
-                      >
-                        <X className="w-3 h-3" />
-                      </Button>
-                    </Badge>
-                  ))}
-                  {columnFilters.projectType.map(filter => (
-                    <Badge key={filter} variant="secondary" className="bg-green-500/20 text-green-300 hover:bg-green-500/30 transition-colors">
-                      <Building className="w-3 h-3 mr-1" />
-                      Type: {filter}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setColumnFilters(prev => ({ ...prev, projectType: prev.projectType.filter(f => f !== filter) }))}
-                        className="ml-2 h-auto p-0 hover:bg-transparent"
-                      >
-                        <X className="w-3 h-3" />
-                      </Button>
-                    </Badge>
-                  ))}
-                  {columnFilters.utmSource.map(filter => (
-                    <Badge key={filter} variant="secondary" className="bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors">
-                      <Link className="w-3 h-3 mr-1" />
-                      Source: {filter}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setColumnFilters(prev => ({ ...prev, utmSource: prev.utmSource.filter(f => f !== filter) }))}
-                        className="ml-2 h-auto p-0 hover:bg-transparent"
-                      >
-                        <X className="w-3 h-3" />
-                      </Button>
-                    </Badge>
-                  ))}
-                  {columnFilters.campaign.map(filter => (
-                    <Badge key={filter} variant="secondary" className="bg-orange-500/20 text-orange-300 hover:bg-orange-500/30 transition-colors">
-                      <Megaphone className="w-3 h-3 mr-1" />
-                      Campaign: {filter}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setColumnFilters(prev => ({ ...prev, campaign: prev.campaign.filter(f => f !== filter) }))}
-                        className="ml-2 h-auto p-0 hover:bg-transparent"
-                      >
-                        <X className="w-3 h-3" />
-                      </Button>
-                    </Badge>
-                  ))}
+
+                {/* Divider */}
+                <div className="border-t border-slate-700/50"></div>
+
+                {/* Custom Date Range */}
+                <div>
+                  <Label className="text-sm text-gray-400 font-semibold mb-3 block">Custom Date Range:</Label>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="start-date" className="text-sm text-gray-300">From Date:</Label>
+                      <Input
+                        id="start-date"
+                        type="date"
+                        value={dateFilter?.start || ''}
+                        onChange={(e) => setDateFilter(prev => ({ start: e.target.value, end: prev?.end || '' }))}
+                        className="w-full bg-slate-800/50 border-slate-600/50"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="end-date" className="text-sm text-gray-300">To Date:</Label>
+                      <Input
+                        id="end-date"
+                        type="date"
+                        value={dateFilter?.end || ''}
+                        onChange={(e) => setDateFilter(prev => ({ start: prev?.start || '', end: e.target.value }))}
+                        className="w-full bg-slate-800/50 border-slate-600/50"
+                      />
+                    </div>
+                  </div>
                 </div>
+
+                {/* Divider */}
+                <div className="border-t border-slate-700/50"></div>
+
+                {/* Compare Toggle */}
+                <div>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowCompare(!showCompare)}
+                    className="w-full justify-start bg-slate-800/50 border-slate-600/50 hover:bg-purple-500/10 hover:border-purple-500/50 hover:text-purple-400 transition-all duration-300"
+                  >
+                    <BarChart3 className="w-4 h-4 mr-2" />
+                    {showCompare ? 'Hide Compare Mode' : 'Enable Compare Mode'}
+                  </Button>
+                </div>
+
+                {/* Compare Date Range */}
+                {showCompare && (
+                  <div className="space-y-4 p-4 bg-purple-500/5 border border-purple-500/20 rounded-xl">
+                    <Label className="text-sm text-purple-300 font-semibold">Compare Period:</Label>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="compare-start" className="text-sm text-gray-300">From Date:</Label>
+                        <Input
+                          id="compare-start"
+                          type="date"
+                          value={compareDateFilter?.start || ''}
+                          onChange={(e) => setCompareDateFilter(prev => ({ start: e.target.value, end: prev?.end || '' }))}
+                          className="w-full bg-purple-900/20 border-purple-500/30"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="compare-end" className="text-sm text-gray-300">To Date:</Label>
+                        <Input
+                          id="compare-end"
+                          type="date"
+                          value={compareDateFilter?.end || ''}
+                          onChange={(e) => setCompareDateFilter(prev => ({ start: prev?.start || '', end: e.target.value }))}
+                          className="w-full bg-purple-900/20 border-purple-500/30"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Actions */}
+                {dateFilter && (
+                  <div className="pt-4">
+                    <Button
+                      variant="destructive"
+                      onClick={() => {
+                        handleClearDateFilter();
+                        setDateFilterOpen(false);
+                      }}
+                      className="w-full"
+                    >
+                      <X className="w-4 h-4 mr-2" />
+                      Clear Date Filter
+                    </Button>
+                  </div>
+                )}
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </SheetContent>
+          </Sheet>
+
+          {/* Column Filter Button */}
+          <Sheet open={columnFilterOpen} onOpenChange={setColumnFilterOpen}>
+            <SheetTrigger asChild>
+              <Button 
+                className="bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white shadow-lg hover:shadow-cyan-500/30 transition-all duration-300 border border-slate-600/50"
+                size="lg"
+              >
+                <SlidersHorizontal className="w-5 h-5 mr-2" />
+                Column Filters
+                {(columnFilters.routeTo.length > 0 || columnFilters.projectType.length > 0 || columnFilters.utmSource.length > 0 || columnFilters.campaign.length > 0) && (
+                  <Badge className="ml-2 bg-cyan-500/20 text-cyan-300 border-cyan-500/30">
+                    {columnFilters.routeTo.length + columnFilters.projectType.length + columnFilters.utmSource.length + columnFilters.campaign.length}
+                  </Badge>
+                )}
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-[500px] sm:w-[600px] bg-slate-900/95 backdrop-blur-xl border-slate-700/50 overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle className="flex items-center gap-3 text-2xl">
+                  <div className="p-2 bg-cyan-500/10 rounded-xl">
+                    <Filter className="w-6 h-6 text-cyan-400" />
+                  </div>
+                  <span className="bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">Column Filters</span>
+                </SheetTitle>
+                <SheetDescription className="text-gray-400">
+                  Filter leads by specific column values
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="mt-8 space-y-6">
+                {/* Route To Filter */}
+                <div className="space-y-3">
+                  <Label className="flex items-center gap-2 text-base font-semibold text-white">
+                    <Users className="w-5 h-5 text-blue-400" />
+                    Route To
+                    {columnFilters.routeTo.length > 0 && (
+                      <Badge variant="secondary" className="bg-blue-500/20 text-blue-300">
+                        {columnFilters.routeTo.length}
+                      </Badge>
+                    )}
+                  </Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-between bg-slate-800/50 border-slate-600/50">
+                        {columnFilters.routeTo.length > 0 
+                          ? `${columnFilters.routeTo.length} selected` 
+                          : "Select Route To"}
+                        <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[400px] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search route..." />
+                        <CommandList>
+                          <CommandEmpty>No route found.</CommandEmpty>
+                          <CommandGroup>
+                            {filterOptions.routeTo.map(option => {
+                              const count = allData.filter(item => item.Route_To === option).length;
+                              const isSelected = columnFilters.routeTo.includes(option);
+                              return (
+                                <CommandItem
+                                  key={option}
+                                  onSelect={() => {
+                                    if (isSelected) {
+                                      setColumnFilters(prev => ({ ...prev, routeTo: prev.routeTo.filter(item => item !== option) }));
+                                    } else {
+                                      setColumnFilters(prev => ({ ...prev, routeTo: [...prev.routeTo, option] }));
+                                    }
+                                  }}
+                                >
+                                  <div className="flex items-center gap-2 flex-1">
+                                    <Checkbox
+                                      checked={isSelected}
+                                      className="pointer-events-none"
+                                    />
+                                    <span className="flex-1">{option}</span>
+                                    <Badge variant="outline" className="text-xs">
+                                      {count.toLocaleString()}
+                                    </Badge>
+                                  </div>
+                                </CommandItem>
+                              );
+                            })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                {/* Project Type Filter */}
+                <div className="space-y-3">
+                  <Label className="flex items-center gap-2 text-base font-semibold text-white">
+                    <Building className="w-5 h-5 text-green-400" />
+                    Project Type
+                    {columnFilters.projectType.length > 0 && (
+                      <Badge variant="secondary" className="bg-green-500/20 text-green-300">
+                        {columnFilters.projectType.length}
+                      </Badge>
+                    )}
+                  </Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-between bg-slate-800/50 border-slate-600/50">
+                        {columnFilters.projectType.length > 0 
+                          ? `${columnFilters.projectType.length} selected` 
+                          : "Select Project Type"}
+                        <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[400px] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search project type..." />
+                        <CommandList>
+                          <CommandEmpty>No project type found.</CommandEmpty>
+                          <CommandGroup>
+                            {filterOptions.projectType.map(option => {
+                              const count = allData.filter(item => item.Project_Type === option).length;
+                              const isSelected = columnFilters.projectType.includes(option);
+                              return (
+                                <CommandItem
+                                  key={option}
+                                  onSelect={() => {
+                                    if (isSelected) {
+                                      setColumnFilters(prev => ({ ...prev, projectType: prev.projectType.filter(item => item !== option) }));
+                                    } else {
+                                      setColumnFilters(prev => ({ ...prev, projectType: [...prev.projectType, option] }));
+                                    }
+                                  }}
+                                >
+                                  <div className="flex items-center gap-2 flex-1">
+                                    <Checkbox
+                                      checked={isSelected}
+                                      className="pointer-events-none"
+                                    />
+                                    <span className="flex-1">{option}</span>
+                                    <Badge variant="outline" className="text-xs">
+                                      {count.toLocaleString()}
+                                    </Badge>
+                                  </div>
+                                </CommandItem>
+                              );
+                            })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                {/* UTM Source Filter */}
+                <div className="space-y-3">
+                  <Label className="flex items-center gap-2 text-base font-semibold text-white">
+                    <Link className="w-5 h-5 text-purple-400" />
+                    UTM Source
+                    {columnFilters.utmSource.length > 0 && (
+                      <Badge variant="secondary" className="bg-purple-500/20 text-purple-300">
+                        {columnFilters.utmSource.length}
+                      </Badge>
+                    )}
+                  </Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-between bg-slate-800/50 border-slate-600/50">
+                        {columnFilters.utmSource.length > 0 
+                          ? `${columnFilters.utmSource.length} selected` 
+                          : "Select UTM Source"}
+                        <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[400px] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search UTM source..." />
+                        <CommandList>
+                          <CommandEmpty>No UTM source found.</CommandEmpty>
+                          <CommandGroup>
+                            {filterOptions.utmSource.map(option => {
+                              const count = allData.filter(item => item.UTM_Source === option).length;
+                              const isSelected = columnFilters.utmSource.includes(option);
+                              return (
+                                <CommandItem
+                                  key={option}
+                                  onSelect={() => {
+                                    if (isSelected) {
+                                      setColumnFilters(prev => ({ ...prev, utmSource: prev.utmSource.filter(item => item !== option) }));
+                                    } else {
+                                      setColumnFilters(prev => ({ ...prev, utmSource: [...prev.utmSource, option] }));
+                                    }
+                                  }}
+                                >
+                                  <div className="flex items-center gap-2 flex-1">
+                                    <Checkbox
+                                      checked={isSelected}
+                                      className="pointer-events-none"
+                                    />
+                                    <span className="flex-1">{option}</span>
+                                    <Badge variant="outline" className="text-xs">
+                                      {count.toLocaleString()}
+                                    </Badge>
+                                  </div>
+                                </CommandItem>
+                              );
+                            })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                {/* Campaign Filter */}
+                <div className="space-y-3">
+                  <Label className="flex items-center gap-2 text-base font-semibold text-white">
+                    <Megaphone className="w-5 h-5 text-orange-400" />
+                    Campaign
+                    {columnFilters.campaign.length > 0 && (
+                      <Badge variant="secondary" className="bg-orange-500/20 text-orange-300">
+                        {columnFilters.campaign.length}
+                      </Badge>
+                    )}
+                  </Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-between bg-slate-800/50 border-slate-600/50">
+                        {columnFilters.campaign.length > 0 
+                          ? `${columnFilters.campaign.length} selected` 
+                          : "Select Campaign"}
+                        <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[400px] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search campaign..." />
+                        <CommandList>
+                          <CommandEmpty>No campaign found.</CommandEmpty>
+                          <CommandGroup>
+                            {filterOptions.campaign.map(option => {
+                              const count = allData.filter(item => item.Campaign === option).length;
+                              const isSelected = columnFilters.campaign.includes(option);
+                              return (
+                                <CommandItem
+                                  key={option}
+                                  onSelect={() => {
+                                    if (isSelected) {
+                                      setColumnFilters(prev => ({ ...prev, campaign: prev.campaign.filter(item => item !== option) }));
+                                    } else {
+                                      setColumnFilters(prev => ({ ...prev, campaign: [...prev.campaign, option] }));
+                                    }
+                                  }}
+                                >
+                                  <div className="flex items-center gap-2 flex-1">
+                                    <Checkbox
+                                      checked={isSelected}
+                                      className="pointer-events-none"
+                                    />
+                                    <span className="flex-1 truncate" title={option}>{option}</span>
+                                    <Badge variant="outline" className="text-xs">
+                                      {count.toLocaleString()}
+                                    </Badge>
+                                  </div>
+                                </CommandItem>
+                              );
+                            })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                {/* Active Filters Display */}
+                {hasActiveFilters && (
+                  <div className="pt-6 border-t border-slate-700/50">
+                    <div className="flex items-center gap-3 mb-4">
+                      <Filter className="w-5 h-5 text-cyan-400" />
+                      <h4 className="text-base font-semibold text-white">Active Filters</h4>
+                      <Badge variant="secondary" className="bg-cyan-500/20 text-cyan-300">
+                        {columnFilters.routeTo.length + columnFilters.projectType.length + columnFilters.utmSource.length + columnFilters.campaign.length}
+                      </Badge>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {columnFilters.routeTo.map(filter => (
+                        <Badge key={filter} variant="secondary" className="bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition-colors">
+                          <Users className="w-3 h-3 mr-1" />
+                          {filter}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setColumnFilters(prev => ({ ...prev, routeTo: prev.routeTo.filter(f => f !== filter) }))}
+                            className="ml-2 h-auto p-0 hover:bg-transparent"
+                          >
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </Badge>
+                      ))}
+                      {columnFilters.projectType.map(filter => (
+                        <Badge key={filter} variant="secondary" className="bg-green-500/20 text-green-300 hover:bg-green-500/30 transition-colors">
+                          <Building className="w-3 h-3 mr-1" />
+                          {filter}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setColumnFilters(prev => ({ ...prev, projectType: prev.projectType.filter(f => f !== filter) }))}
+                            className="ml-2 h-auto p-0 hover:bg-transparent"
+                          >
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </Badge>
+                      ))}
+                      {columnFilters.utmSource.map(filter => (
+                        <Badge key={filter} variant="secondary" className="bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors">
+                          <Link className="w-3 h-3 mr-1" />
+                          {filter}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setColumnFilters(prev => ({ ...prev, utmSource: prev.utmSource.filter(f => f !== filter) }))}
+                            className="ml-2 h-auto p-0 hover:bg-transparent"
+                          >
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </Badge>
+                      ))}
+                      {columnFilters.campaign.map(filter => (
+                        <Badge key={filter} variant="secondary" className="bg-orange-500/20 text-orange-300 hover:bg-orange-500/30 transition-colors">
+                          <Megaphone className="w-3 h-3 mr-1" />
+                          {filter}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setColumnFilters(prev => ({ ...prev, campaign: prev.campaign.filter(f => f !== filter) }))}
+                            className="ml-2 h-auto p-0 hover:bg-transparent"
+                          >
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </Badge>
+                      ))}
+                    </div>
+
+                    {/* Clear All Button */}
+                    <Button
+                      variant="destructive"
+                      onClick={() => {
+                        handleClearAllFilters();
+                        setColumnFilterOpen(false);
+                      }}
+                      className="w-full mt-4"
+                    >
+                      <X className="w-4 h-4 mr-2" />
+                      Clear All Filters
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          {/* Clear All Filters Button - Only show when filters are active */}
+          {hasActiveFilters && (
+            <Button
+              variant="destructive"
+              size="lg"
+              onClick={handleClearAllFilters}
+              className="shadow-lg hover:shadow-red-500/50 transition-all duration-300"
+            >
+              <X className="w-5 h-5 mr-2" />
+              Clear All Filters
+            </Button>
+          )}
+        </div>
 
         {/* Comparison Banner */}
         {compareStats && (
