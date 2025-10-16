@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCachedData } from '@/lib/redis';
 import { normalizeTimestamp, validateTimestamp, analyzeTimestampFormats, normalizeLeadTimestamps } from '@/lib/timestamp-normalizer';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 /**
  * Test endpoint for timestamp normalization
  * GET /api/test-timestamp-normalization

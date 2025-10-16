@@ -1,52 +1,58 @@
 import { createClient } from 'redis';
 
-// Use local Redis by default for fast performance
-// Only use remote Redis if explicitly set
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+// Use environment Redis URL if available, otherwise disable Redis for production
+const redisUrl = process.env.REDIS_URL;
+const isProduction = process.env.NODE_ENV === 'production';
+const isLocalRedis = redisUrl && (redisUrl.includes('localhost') || redisUrl.includes('127.0.0.1'));
 
-const isLocalRedis = redisUrl.includes('localhost') || redisUrl.includes('127.0.0.1');
-
-// Log which Redis we're connecting to
-if (isLocalRedis) {
+// In production without Redis, disable caching
+if (isProduction && !redisUrl) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔗 [REDIS] Connecting to: ⚡ LOCAL Redis (FAST)');
-  console.log('🚀 [REDIS] Expected performance: 1-5ms read time');
+  console.log('🚫 [REDIS] Redis disabled in production - caching disabled');
+  console.log('💡 [REDIS] Set REDIS_URL environment variable to enable caching');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-} else {
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.warn('⚠️ [REDIS] Connecting to: 🐌 REMOTE Redis (SLOW)');
-  console.warn('⚠️ [REDIS] Expected performance: 100-2000ms read time');
-  console.warn('💡 [REDIS] Recommendation: Switch to LOCAL Redis for 50-200x faster performance');
-  console.warn('💡 [REDIS] How: Remove REDIS_URL from .env.local or set to redis://localhost:6379');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+} else if (redisUrl) {
+  // Log which Redis we're connecting to
+  if (isLocalRedis) {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🔗 [REDIS] Connecting to: ⚡ LOCAL Redis (FAST)');
+    console.log('🚀 [REDIS] Expected performance: 1-5ms read time');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  } else {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🔗 [REDIS] Connecting to: 🌐 REMOTE Redis');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  }
 }
 
-// Create Redis client
-const client = createClient({
-  url: redisUrl,
-});
-
-client.on('error', (err) => console.error('❌ [REDIS] Redis Client Error:', err));
-client.on('connect', () => {
-  console.log(`✅ [REDIS] Redis connected successfully to ${isLocalRedis ? 'LOCAL' : 'REMOTE'} server`);
-  if (!isLocalRedis) {
-    console.warn('⚠️ [REDIS] Performance warning: Using remote Redis will be SLOW (1-2 seconds per request)');
-    console.warn('💡 [REDIS] Switch to local Redis for 50-200x performance improvement');
-  }
-});
-
-// Connect to Redis
+// Create Redis client only if URL is provided
+let client: any = null;
 let isConnected = false;
 
+if (redisUrl) {
+  client = createClient({
+    url: redisUrl,
+  });
+
+  client.on('error', (err) => console.error('❌ [REDIS] Redis Client Error:', err));
+  client.on('connect', () => {
+    console.log(`✅ [REDIS] Redis connected successfully to ${isLocalRedis ? 'LOCAL' : 'REMOTE'} server`);
+  });
+}
+
 export async function getRedisClient() {
-  if (!isConnected) {
+  if (!redisUrl) {
+    return null;
+  }
+  
+  if (!isConnected && client) {
     try {
       await client.connect();
       isConnected = true;
       console.log('✅ Redis connected successfully');
     } catch (error) {
       console.error('❌ Redis connection failed:', error);
-      throw error;
+      return null;
     }
   }
   return client;
@@ -58,9 +64,14 @@ const TTL = 60 * 60 * 24; // 24 hours in seconds
 
 export async function getCachedData(key: string = BIGQUERY_CACHE_KEY) {
   try {
+    const redis = await getRedisClient();
+    if (!redis) {
+      console.log(`🚫 [REDIS READ] Redis not available - skipping cache read (key: ${key})`);
+      return null;
+    }
+    
     console.log(`🔍 [REDIS READ] Attempting to read from Redis (key: ${key})...`);
     const startTime = Date.now();
-    const redis = await getRedisClient();
     const cached = await redis.get(key);
     const redisTime = Date.now() - startTime;
     
@@ -113,9 +124,14 @@ export async function getCachedData(key: string = BIGQUERY_CACHE_KEY) {
 
 export async function setCachedData(key: string, data: any, ttl: number = TTL) {
   try {
+    const redis = await getRedisClient();
+    if (!redis) {
+      console.log(`🚫 [REDIS WRITE] Redis not available - skipping cache write (key: ${key})`);
+      return false;
+    }
+    
     console.log(`📝 [REDIS WRITE] Preparing to write data to Redis (key: ${key})...`);
     const startTime = Date.now();
-    const redis = await getRedisClient();
     const jsonString = JSON.stringify(data);
     const dataSizeMB = (Buffer.byteLength(jsonString, 'utf8') / (1024 * 1024)).toFixed(2);
     
@@ -139,6 +155,11 @@ export async function setCachedData(key: string, data: any, ttl: number = TTL) {
 export async function clearCache(key: string = BIGQUERY_CACHE_KEY) {
   try {
     const redis = await getRedisClient();
+    if (!redis) {
+      console.log(`🚫 [REDIS CLEAR] Redis not available - skipping cache clear (key: ${key})`);
+      return false;
+    }
+    
     await redis.del(key);
     console.log(`✅ Cache cleared from Redis (key: ${key})`);
     return true;

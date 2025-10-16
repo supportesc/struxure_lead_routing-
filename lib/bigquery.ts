@@ -8,16 +8,41 @@ let bigqueryClient: BigQuery | null = null;
 function getBigQueryClient(): BigQuery {
   if (!bigqueryClient) {
     try {
-      const credentialsPath = path.join(process.cwd(), 'bigquery-credentials.json');
-      const credentialsContent = fs.readFileSync(credentialsPath, 'utf8');
-      const credentials = JSON.parse(credentialsContent);
-      
-      bigqueryClient = new BigQuery({
-        projectId: 'oceanic-sky-474609-v5',
-        credentials,
-      });
-      
-      console.log('✅ BigQuery client initialized successfully');
+      // Use environment variables for production
+      if (process.env.BIGQUERY_PROJECT_ID && process.env.BIGQUERY_PRIVATE_KEY) {
+        const credentials = {
+          type: 'service_account',
+          project_id: process.env.BIGQUERY_PROJECT_ID,
+          private_key_id: process.env.BIGQUERY_PRIVATE_KEY_ID,
+          private_key: process.env.BIGQUERY_PRIVATE_KEY.replace(/\\n/g, '\n'),
+          client_email: process.env.BIGQUERY_CLIENT_EMAIL,
+          client_id: process.env.BIGQUERY_CLIENT_ID,
+          auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+          token_uri: 'https://oauth2.googleapis.com/token',
+          auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
+          client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${encodeURIComponent(process.env.BIGQUERY_CLIENT_EMAIL || '')}`,
+          universe_domain: 'googleapis.com'
+        };
+        
+        bigqueryClient = new BigQuery({
+          projectId: process.env.BIGQUERY_PROJECT_ID,
+          credentials,
+        });
+        
+        console.log('✅ BigQuery client initialized successfully with environment variables');
+      } else {
+        // Fallback to local file for development
+        const credentialsPath = path.join(process.cwd(), 'bigquery-credentials.json');
+        const credentialsContent = fs.readFileSync(credentialsPath, 'utf8');
+        const credentials = JSON.parse(credentialsContent);
+        
+        bigqueryClient = new BigQuery({
+          projectId: 'oceanic-sky-474609-v5',
+          credentials,
+        });
+        
+        console.log('✅ BigQuery client initialized successfully with local file');
+      }
     } catch (error) {
       console.error('❌ Failed to initialize BigQuery client:', error);
       throw new Error('Failed to initialize BigQuery client');

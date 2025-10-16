@@ -5,6 +5,9 @@ import { normalizeLeadTimestamps, analyzeTimestampFormats } from '@/lib/timestam
 
 const FULL_CACHE_KEY = 'bigquery_leads_full_cache';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 /**
  * Query all data from BigQuery and cache it
  * ⚠️ THIS FUNCTION CALLS BIGQUERY - Only call when cache refresh is needed

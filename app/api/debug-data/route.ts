@@ -3,6 +3,9 @@ import { getCachedData } from '@/lib/redis';
 
 const FULL_CACHE_KEY = 'bigquery_leads_full_cache';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/debug-data
  * 

@@ -6,6 +6,9 @@ import fs from 'fs';
 
 const FULL_CACHE_KEY = 'bigquery_leads_full_cache';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);

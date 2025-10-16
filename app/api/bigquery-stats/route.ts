@@ -43,6 +43,9 @@ function generateCacheKey(filters: QueryFilters): string {
   return `bq:stats:${hash}`;
 }
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/bigquery-stats
  * 
