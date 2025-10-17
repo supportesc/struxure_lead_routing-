@@ -7,6 +7,7 @@ const FULL_CACHE_KEY = 'bigquery_leads_full_cache';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 /**
  * Query all data from BigQuery and cache it

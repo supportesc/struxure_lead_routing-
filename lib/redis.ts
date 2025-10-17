@@ -25,11 +25,15 @@ if (isProduction && !redisUrl) {
   }
 }
 
-// Create Redis client only if URL is provided
+// Create Redis client only if URL is provided and not during build
 let client: any = null;
 let isConnected = false;
 
-if (redisUrl) {
+// Don't create Redis client during build time
+const isBuildTime = process.env.NODE_ENV === 'production' && !process.env.VERCEL_ENV;
+const shouldCreateClient = redisUrl && !isBuildTime;
+
+if (shouldCreateClient) {
   client = createClient({
     url: redisUrl,
   });
@@ -38,10 +42,12 @@ if (redisUrl) {
   client.on('connect', () => {
     console.log(`✅ [REDIS] Redis connected successfully to ${isLocalRedis ? 'LOCAL' : 'REMOTE'} server`);
   });
+} else if (isBuildTime) {
+  console.log('🚫 [REDIS] Skipping Redis client creation during build time');
 }
 
 export async function getRedisClient() {
-  if (!redisUrl) {
+  if (!redisUrl || !shouldCreateClient) {
     return null;
   }
   
@@ -64,6 +70,12 @@ const TTL = 60 * 60 * 24; // 24 hours in seconds
 
 export async function getCachedData(key: string = BIGQUERY_CACHE_KEY) {
   try {
+    // Skip Redis operations during build time
+    if (isBuildTime) {
+      console.log(`🚫 [REDIS READ] Skipping Redis read during build time (key: ${key})`);
+      return null;
+    }
+    
     const redis = await getRedisClient();
     if (!redis) {
       console.log(`🚫 [REDIS READ] Redis not available - skipping cache read (key: ${key})`);
@@ -124,6 +136,12 @@ export async function getCachedData(key: string = BIGQUERY_CACHE_KEY) {
 
 export async function setCachedData(key: string, data: any, ttl: number = TTL) {
   try {
+    // Skip Redis operations during build time
+    if (isBuildTime) {
+      console.log(`🚫 [REDIS WRITE] Skipping Redis write during build time (key: ${key})`);
+      return false;
+    }
+    
     const redis = await getRedisClient();
     if (!redis) {
       console.log(`🚫 [REDIS WRITE] Redis not available - skipping cache write (key: ${key})`);
@@ -154,6 +172,12 @@ export async function setCachedData(key: string, data: any, ttl: number = TTL) {
 
 export async function clearCache(key: string = BIGQUERY_CACHE_KEY) {
   try {
+    // Skip Redis operations during build time
+    if (isBuildTime) {
+      console.log(`🚫 [REDIS CLEAR] Skipping Redis clear during build time (key: ${key})`);
+      return false;
+    }
+    
     const redis = await getRedisClient();
     if (!redis) {
       console.log(`🚫 [REDIS CLEAR] Redis not available - skipping cache clear (key: ${key})`);

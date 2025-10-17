@@ -45,6 +45,7 @@ function generateCacheKey(filters: QueryFilters): string {
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 /**
  * GET /api/bigquery-stats

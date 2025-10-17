@@ -4,6 +4,7 @@ import { normalizeTimestamp, validateTimestamp, analyzeTimestampFormats, normali
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 /**
  * Test endpoint for timestamp normalization
