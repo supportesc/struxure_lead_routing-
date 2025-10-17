@@ -13,23 +13,38 @@ export const runtime = 'nodejs';
  */
 async function syncBigQueryToRedis() {
   const { BigQuery } = await import('@google-cloud/bigquery');
-  const fs = await import('fs');
-  const path = await import('path');
   
   console.log('📥 [BIGQUERY] Starting BigQuery to Redis sync...');
   
-  const credentialsPath = path.join(process.cwd(), 'bigquery-credentials.json');
-  const credentialsContent = fs.readFileSync(credentialsPath, 'utf8');
-  const credentials = JSON.parse(credentialsContent);
-
-  const bigquery = new BigQuery({
-    projectId: 'oceanic-sky-474609-v5',
-    credentials,
-  });
+  // Use environment variables for production
+  if (process.env.BIGQUERY_PROJECT_ID && process.env.BIGQUERY_PRIVATE_KEY) {
+    const credentials = {
+      type: 'service_account',
+      project_id: process.env.BIGQUERY_PROJECT_ID,
+      private_key_id: process.env.BIGQUERY_PRIVATE_KEY_ID,
+      private_key: process.env.BIGQUERY_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      client_email: process.env.BIGQUERY_CLIENT_EMAIL,
+      client_id: process.env.BIGQUERY_CLIENT_ID,
+      auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+      token_uri: 'https://oauth2.googleapis.com/token',
+      auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
+      client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${encodeURIComponent(process.env.BIGQUERY_CLIENT_EMAIL || '')}`,
+      universe_domain: 'googleapis.com'
+    };
+    
+    const bigquery = new BigQuery({
+      projectId: process.env.BIGQUERY_PROJECT_ID,
+      credentials,
+    });
+    
+    console.log('✅ BigQuery client initialized with environment variables');
+  } else {
+    throw new Error('BigQuery environment variables not configured');
+  }
 
   const query = `
     SELECT *
-    FROM \`oceanic-sky-474609-v5.lead_generation.struxure_leads\`
+    FROM \`${process.env.BIGQUERY_PROJECT_ID}.lead_generation.struxure_leads\`
   `;
 
   console.log('📡 [BIGQUERY] Executing BigQuery SQL query...');

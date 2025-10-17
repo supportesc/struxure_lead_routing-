@@ -30,17 +30,34 @@ export async function GET(request: Request) {
 
     // 2. Get data from BigQuery for comparison
     console.log('📊 Step 2: Fetching from BigQuery...');
-    const credentialsPath = path.join(process.cwd(), 'bigquery-credentials.json');
-    const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
+    
+    // Use environment variables for production
+    if (!process.env.BIGQUERY_PROJECT_ID || !process.env.BIGQUERY_PRIVATE_KEY) {
+      throw new Error('BigQuery environment variables not configured');
+    }
+    
+    const credentials = {
+      type: 'service_account',
+      project_id: process.env.BIGQUERY_PROJECT_ID,
+      private_key_id: process.env.BIGQUERY_PRIVATE_KEY_ID,
+      private_key: process.env.BIGQUERY_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      client_email: process.env.BIGQUERY_CLIENT_EMAIL,
+      client_id: process.env.BIGQUERY_CLIENT_ID,
+      auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+      token_uri: 'https://oauth2.googleapis.com/token',
+      auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
+      client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${encodeURIComponent(process.env.BIGQUERY_CLIENT_EMAIL || '')}`,
+      universe_domain: 'googleapis.com'
+    };
     
     const bigquery = new BigQuery({
-      projectId: 'oceanic-sky-474609-v5',
+      projectId: process.env.BIGQUERY_PROJECT_ID,
       credentials,
     });
 
     const query = `
       SELECT Timestamp, First_Name, Last_Name, Route_To, Project_Type
-      FROM \`oceanic-sky-474609-v5.lead_generation.struxure_leads\`
+      FROM \`${process.env.BIGQUERY_PROJECT_ID}.lead_generation.struxure_leads\`
       ORDER BY Timestamp DESC
       LIMIT 100
     `;
