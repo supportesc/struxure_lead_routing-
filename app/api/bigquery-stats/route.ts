@@ -63,7 +63,8 @@ export const revalidate = 0;
  */
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
+    // ✅ FIXED: Use new URL() instead of request.nextUrl.searchParams
+    const { searchParams } = new URL(request.url);
     const filters = parseFilters(searchParams);
     const noCache = searchParams.get('nocache') === 'true';
 
@@ -118,4 +119,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-
