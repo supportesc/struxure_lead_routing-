@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCachedData } from '@/lib/redis';
 import { normalizeTimestamp, validateTimestamp, analyzeTimestampFormats, normalizeLeadTimestamps } from '@/lib/timestamp-normalizer';
 
-// Force dynamic rendering
+// Force dynamic rendering - never pre-render this route
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const revalidate = 0;
 
 /**
  * Test endpoint for timestamp normalization
