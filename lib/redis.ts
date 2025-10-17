@@ -5,6 +5,16 @@ const redisUrl = process.env.REDIS_URL;
 const isProduction = process.env.NODE_ENV === 'production';
 const isLocalRedis = redisUrl && (redisUrl.includes('localhost') || redisUrl.includes('127.0.0.1'));
 
+// Debug logging for build environment
+console.log('🔍 [REDIS DEBUG] Environment check:');
+console.log('  - NODE_ENV:', process.env.NODE_ENV);
+console.log('  - VERCEL:', process.env.VERCEL);
+console.log('  - VERCEL_ENV:', process.env.VERCEL_ENV);
+console.log('  - REDIS_URL:', redisUrl ? 'SET' : 'NOT SET');
+if (redisUrl) {
+  console.log('  - REDIS_URL value:', redisUrl);
+}
+
 // In production without Redis, disable caching
 if (isProduction && !redisUrl) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -30,8 +40,15 @@ let client: any = null;
 let isConnected = false;
 
 // Don't create Redis client during build time
-const isBuildTime = process.env.NODE_ENV === 'production' && !process.env.VERCEL_ENV;
+// In Vercel build, VERCEL=1 but VERCEL_ENV is not set yet
+const isVercelBuild = process.env.VERCEL === '1' && process.env.NODE_ENV === 'production';
+const isBuildTime = isVercelBuild || (!process.env.VERCEL_ENV && process.env.NODE_ENV === 'production');
 const shouldCreateClient = redisUrl && !isBuildTime;
+
+console.log('🔍 [REDIS DEBUG] Build detection:');
+console.log('  - isVercelBuild:', isVercelBuild);
+console.log('  - isBuildTime:', isBuildTime);
+console.log('  - shouldCreateClient:', shouldCreateClient);
 
 if (shouldCreateClient) {
   client = createClient({
