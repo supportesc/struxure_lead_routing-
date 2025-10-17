@@ -51,11 +51,25 @@ console.log('  - isBuildTime:', isBuildTime);
 console.log('  - shouldCreateClient:', shouldCreateClient);
 
 if (shouldCreateClient) {
+  console.log('🔍 [REDIS DEBUG] Creating Redis client with URL:', redisUrl);
   client = createClient({
     url: redisUrl,
+    socket: {
+      connectTimeout: 5000, // 5 second timeout
+      lazyConnect: true, // Don't connect immediately
+    }
   });
 
-  client.on('error', (err) => console.error('❌ [REDIS] Redis Client Error:', err));
+  client.on('error', (err) => {
+    console.error('❌ [REDIS] Redis Client Error:', err);
+    console.error('❌ [REDIS] Error details:', {
+      code: err.code,
+      errno: err.errno,
+      syscall: err.syscall,
+      address: err.address,
+      port: err.port
+    });
+  });
   client.on('connect', () => {
     console.log(`✅ [REDIS] Redis connected successfully to ${isLocalRedis ? 'LOCAL' : 'REMOTE'} server`);
   });
