@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
       {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
-        message: 'Failed to fetch stats from BigQuery'
+        // message: 'Failed to fetch stats from BigQuery'
       },
       { status: 500 }
     );
