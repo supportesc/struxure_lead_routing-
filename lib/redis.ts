@@ -56,11 +56,10 @@ if (shouldCreateClient) {
     url: redisUrl,
     socket: {
       connectTimeout: 5000, // 5 second timeout
-      lazyConnect: true, // Don't connect immediately
     }
   });
 
-  client.on('error', (err) => {
+  client.on('error', (err: any) => {
     console.error('❌ [REDIS] Redis Client Error:', err);
     console.error('❌ [REDIS] Error details:', {
       code: err.code,

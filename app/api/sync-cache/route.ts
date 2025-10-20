@@ -16,7 +16,7 @@ async function syncBigQueryToRedis() {
   const { BigQuery } = await import('@google-cloud/bigquery');
   
   console.log('📥 [BIGQUERY] Starting BigQuery to Redis sync...');
-  
+  let bigquery;
   // Use environment variables for production
   if (process.env.BIGQUERY_PROJECT_ID && process.env.BIGQUERY_PRIVATE_KEY) {
     const credentials = {
@@ -32,8 +32,9 @@ async function syncBigQueryToRedis() {
       client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${encodeURIComponent(process.env.BIGQUERY_CLIENT_EMAIL || '')}`,
       universe_domain: 'googleapis.com'
     };
-    
-    const bigquery = new BigQuery({
+
+
+     bigquery = new BigQuery({
       projectId: process.env.BIGQUERY_PROJECT_ID,
       credentials,
     });
@@ -47,6 +48,7 @@ async function syncBigQueryToRedis() {
     SELECT *
     FROM \`${process.env.BIGQUERY_PROJECT_ID}.lead_generation.struxure_leads\`
   `;
+
 
   console.log('📡 [BIGQUERY] Executing BigQuery SQL query...');
   const startTime = Date.now();
