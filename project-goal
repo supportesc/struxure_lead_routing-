@@ -1,0 +1,285 @@
+# Project Goal: Struxure Leads Dashboard Migration
+
+## 🎯 **Main Objective**
+
+This Next.js application is designed to **replace** the existing Looker Studio report for Struxure leads, moving the data source from **Google Sheets** to **Google BigQuery**.
+
+---
+
+## 📊 **Current State (What We're Replacing)**
+
+### **Existing Looker Studio Report**
+- **URL**: `lookerstudio.google.com/u/0/reporting/cc4853b8-43ef-4e9b-abbf-340d5a093c69/page/1M`
+- **Data Source**: Google Sheets
+- **Sheet URL**: `https://docs.google.com/spreadsheets/d/1mkeNx9r0_ocAjkCIU-fzXM00WIOLw9vxmi3vbSWhieU/edit?gid=0#gid=0`
+- **Report Name**: "Struxure leads"
+
+### **Why Replace It?**
+The current Looker Studio report pulls data directly from a Google Sheet. The goal is to:
+1. Move to a more scalable data warehouse (BigQuery)
+2. Have better control over data structure and queries
+3. Improve performance and real-time capabilities
+4. Create a custom dashboard with more flexibility
+
+---
+
+## 🆕 **New System Architecture**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   DATA SOURCE MIGRATION                  │
+└─────────────────────────────────────────────────────────┘
+
+OLD:  Google Sheets → Looker Studio Report
+NEW:  Zapier Webhook → BigQuery → Next.js Application
+
+┌─────────────────────────────────────────────────────────┐
+│                   NEW DATA FLOW                          │
+└─────────────────────────────────────────────────────────┘
+
+Lead Form/Website
+  └─> Zapier Webhook (Automated)
+      └─> BigQuery (Source of Truth)
+          └─> Dataset: lead_generation
+              └─> Table: struxure_leads
+                  └─> Redis Cache (Performance Layer)
+                      └─> Next.js API Routes
+                          └─> React Frontend (Dashboard)
+```
+
+---
+
+## 🗄️ **BigQuery Setup**
+
+### **Configuration Details**
+- **Project ID**: `oceanic-sky-474609-v5`
+- **Dataset**: `lead_generation`
+- **Table**: `struxure_leads`
+- **Status**: ✅ Already created in BigQuery
+
+### **Data Ingestion: Zapier Webhook**
+- **How data is added**: Leads are automatically inserted into BigQuery via a **Zapier webhook**
+- **Workflow**: Lead form submission → Zapier webhook → BigQuery table insert
+- **Frequency**: Real-time (whenever a new lead is submitted)
+- **Note**: This is an automated process - leads are automatically added to BigQuery without manual intervention
+
+### **Data Schema**
+The BigQuery table contains lead data with the following columns:
+- `Timestamp` - Lead submission timestamp
+- `Route_To` - Lead routing destination (Struxure, Deep Water, etc.)
+- `Project_Type` - Residential or Commercial
+- `First_Name`, `Last_Name`, `Email`, `Phone` - Contact information
+- `Street`, `City`, `State`, `Zip` - Address information
+- `UTM_Source`, `Campaign`, `Medium`, `Content`, `Term` - Marketing attribution
+- `Item_Options`, `Unique_ID` - Additional lead metadata
+- `Struxure_Dealer`, `Deepwater_Dealer` - Dealer assignments
+
+---
+
+## 🎨 **Application Features**
+
+### **1. Main Dashboard** (`/`)
+**Location**: `app/page.tsx`
+
+**Features:**
+- 📊 Real-time lead statistics cards:
+  - Total leads count
+  - Struxure vs Deepwater leads breakdown
+  - Residential vs Commercial project types
+  - UTM source analytics (Organic, Facebook, Google, YouTube)
+- 🔍 Advanced filtering:
+  - Date range filtering (with quick presets: 7 days, 30 days, 60 days)
+  - Column filters (Route To, Project Type, UTM Source, Campaign)
+  - Comparison mode (compare current period vs previous period)
+- 📋 Paginated data table with lead details
+- 🔄 Manual data refresh button (syncs from BigQuery)
+
+### **2. Lead Source Comparisons** (`/lead-source-comparisons`)
+**Location**: `app/lead-source-comparisons/page.tsx`
+
+**Features:**
+- 📈 Year-over-year comparison analytics
+- Bar charts comparing:
+  - Route distribution (Struxure vs Deepwater)
+  - Project type distribution (Residential vs Commercial)
+  - Top 10 UTM sources with trend analysis
+- Percentage change calculations with visual indicators
+- Date range selection (similar to Google Analytics interface)
+
+---
+
+## ⚡ **Performance Architecture**
+
+### **Redis Caching Layer**
+- **Purpose**: Cache BigQuery data in-memory for fast retrieval
+- **Cache Key**: `bigquery_leads_full_cache`
+- **TTL**: 24 hours
+- **Performance Impact**: 
+  - Without cache: 3-8 seconds (BigQuery query)
+  - With cache: <50ms (Redis read)
+
+### **Cache Strategy: Redis-First**
+1. ✅ Check Redis cache first
+2. ✅ If data exists → Return immediately (fast path)
+3. ⚠️ If cache empty → Query BigQuery, cache result, then return
+
+### **Manual Cache Refresh**
+- **API Endpoint**: `POST /api/sync-cache`
+- **Purpose**: Manually trigger sync from BigQuery to Redis
+- **When to use**: 
+  - After Zapier webhook adds new leads to BigQuery (to see latest data immediately)
+  - On initial deployment
+  - When data seems stale
+  - Note: Cache automatically expires after 24 hours, triggering a fresh BigQuery query
+
+---
+
+## 🔌 **API Endpoints**
+
+### **GET `/api/bigquery-data`**
+Fetches lead data with pagination.
+
+**Query Parameters:**
+- `page` - Page number (default: 1)
+- `limit` - Items per page (default: 25, max: 500, unlimited if >= 100000)
+- `nocache` - Skip Redis cache and force BigQuery query (default: false)
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [...lead records...],
+  "totalCount": 72465,
+  "page": 1,
+  "limit": 25,
+  "cached": true
+}
+```
+
+### **POST `/api/sync-cache`**
+Manually sync data from BigQuery to Redis cache.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Cache synced successfully from BigQuery to Redis",
+  "data": {
+    "rowCount": 72465,
+    "dataSizeMB": 4.25,
+    "queryTimeSeconds": 3.45,
+    "cacheKey": "bigquery_leads_full_cache",
+    "ttlSeconds": 86400,
+    "expiresAt": "2025-10-10T12:00:00.000Z"
+  }
+}
+```
+
+---
+
+## 🛠️ **Technical Stack**
+
+- **Framework**: Next.js 14 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **Data Warehouse**: Google Cloud BigQuery
+- **Data Ingestion**: Zapier (webhook automation)
+- **Caching**: Redis
+- **Charts**: Recharts
+- **UI Components**: Radix UI + shadcn/ui
+
+---
+
+## 📝 **Key Differences from Looker Studio**
+
+| Feature | Looker Studio | This Application |
+|---------|--------------|------------------|
+| Data Source | Google Sheets | BigQuery |
+| Refresh | Manual/automatic from Sheets | Manual via button or automatic on cache expiry |
+| Customization | Limited by Looker Studio | Full React customization |
+| Real-time Updates | Dependent on Sheets sync | Can trigger real-time BigQuery queries |
+| Performance | Limited by Sheets API | Optimized with Redis caching |
+| Cost | Looker Studio license | BigQuery query costs (minimal with caching) |
+
+---
+
+## 🚀 **Next Steps for Development**
+
+1. **Verify BigQuery Connection**
+   - Ensure `bigquery-credentials.json` is present or environment variables are set
+   - Test connection: Check if data is loading in the app
+
+2. **Verify Redis Setup**
+   - Local development: Redis should be running locally (default: `localhost:6379`)
+   - Production: Set `REDIS_URL` environment variable
+
+3. **Initial Data Sync**
+   - On first run, the app will automatically query BigQuery if Redis is empty
+   - Alternatively, manually trigger sync via "Refresh Data" button in the UI
+
+4. **Data Ingestion Verification**
+   - Verify Zapier webhook is properly configured to insert leads into BigQuery
+   - Test that new leads submitted via the form are appearing in BigQuery
+   - Verify column names match the expected schema
+   - Test that timestamps are properly formatted
+   - Confirm Zapier webhook is using the correct BigQuery table: `oceanic-sky-474609-v5.lead_generation.struxure_leads`
+
+5. **Testing**
+   - Test filtering functionality matches Looker Studio capabilities
+   - Verify statistics calculations are accurate
+   - Test date range comparisons
+
+---
+
+## 🔍 **Files to Review**
+
+### **Main Application Files**
+- `app/page.tsx` - Main dashboard with lead table and statistics
+- `app/lead-source-comparisons/page.tsx` - Year-over-year comparison page
+- `lib/bigquery.ts` - BigQuery client configuration and query functions
+- `lib/redis.ts` - Redis client and caching functions
+
+### **API Routes**
+- `app/api/bigquery-data/route.ts` - Main data fetching endpoint (GET/POST)
+- `app/api/sync-cache/route.ts` - Manual cache sync endpoint (POST)
+
+### **Configuration**
+- `bigquery-credentials.json` - BigQuery service account credentials
+- `.env.local` - Environment variables (Redis URL, BigQuery credentials)
+
+---
+
+## 💡 **Important Notes**
+
+1. **BigQuery is the Source of Truth**: All data comes from the BigQuery table, not Google Sheets
+2. **Redis is for Performance**: Redis is a caching layer to speed up queries. If Redis fails, the app falls back to BigQuery
+3. **Cache Refresh**: Users can manually refresh data via the "Refresh Data" button, which syncs from BigQuery to Redis
+4. **Data Updates**: 
+   - New leads are automatically added to BigQuery via Zapier webhook (real-time)
+   - To see new leads in the dashboard immediately, users can click "Refresh Data" to sync from BigQuery to Redis
+   - Alternatively, wait for cache to expire (24 hours) for automatic refresh
+5. **Zapier Integration**: The Zapier webhook is responsible for inserting leads into BigQuery. This automation runs in the background and doesn't require any action from the dashboard users
+6. **This Replaces Looker Studio**: Once this app is complete and verified, it should replace the Looker Studio report as the primary tool for viewing Struxure leads analytics
+
+---
+
+## ❓ **Questions to Clarify**
+
+1. ✅ **How are leads added to BigQuery?** → **ANSWERED: Zapier webhook** (automated, real-time)
+2. ✅ **What's the update frequency?** → **ANSWERED: Real-time** (via Zapier webhook when leads are submitted)
+3. Are there any specific Looker Studio features that must be replicated exactly?
+4. Who are the primary users of this dashboard, and what are their most common use cases?
+5. Should there be automatic cache refresh on a schedule, or is manual refresh sufficient? (Currently: Manual refresh or 24-hour TTL)
+6. What triggers the Zapier webhook? (Which form/website captures leads?)
+7. Is there a way to verify Zapier webhook is functioning correctly (logs, monitoring)?
+
+---
+
+## 📚 **Reference Links**
+
+- **Looker Studio Report**: `lookerstudio.google.com/u/0/reporting/cc4853b8-43ef-4e9b-abbf-340d5a093c69/page/1M`
+- **Original Google Sheet**: `https://docs.google.com/spreadsheets/d/1mkeNx9r0_ocAjkCIU-fzXM00WIOLw9vxmi3vbSWhieU/edit?gid=0#gid=0`
+- **BigQuery Project**: `oceanic-sky-474609-v5`
+- **BigQuery Dataset**: `lead_generation`
+- **BigQuery Table**: `struxure_leads`
+
