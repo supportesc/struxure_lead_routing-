@@ -102,9 +102,46 @@ export type PaginationOptions = {
 function buildWhereClause(filters: QueryFilters): { where: string } {
   const conditions: string[] = [];
 
-  // For now, just return empty where clause
-  // We'll add filtering later once basic queries work
-  
+  // Date range filtering
+  if (filters.dateFrom && filters.dateTo) {
+    conditions.push(`DATE(Timestamp) >= '${filters.dateFrom}' AND DATE(Timestamp) <= '${filters.dateTo}'`);
+  } else if (filters.dateFrom) {
+    conditions.push(`DATE(Timestamp) >= '${filters.dateFrom}'`);
+  } else if (filters.dateTo) {
+    conditions.push(`DATE(Timestamp) <= '${filters.dateTo}'`);
+  }
+
+  // Route To filtering
+  if (filters.routeTo && filters.routeTo.length > 0) {
+    // Escape single quotes and join with OR for IN clause
+    const escapedRoutes = filters.routeTo.map(route => `'${route.replace(/'/g, "''")}'`);
+    conditions.push(`Route_To IN (${escapedRoutes.join(', ')})`);
+  }
+
+  // Project Type filtering
+  if (filters.projectType && filters.projectType.length > 0) {
+    const escapedTypes = filters.projectType.map(type => `'${type.replace(/'/g, "''")}'`);
+    conditions.push(`Project_Type IN (${escapedTypes.join(', ')})`);
+  }
+
+  // UTM Source filtering
+  if (filters.utmSource && filters.utmSource.length > 0) {
+    const escapedSources = filters.utmSource.map(source => `'${source.replace(/'/g, "''")}'`);
+    conditions.push(`UTM_Source IN (${escapedSources.join(', ')})`);
+  }
+
+  // Campaign filtering
+  if (filters.campaign && filters.campaign.length > 0) {
+    const escapedCampaigns = filters.campaign.map(campaign => `'${campaign.replace(/'/g, "''")}'`);
+    conditions.push(`Campaign IN (${escapedCampaigns.join(', ')})`);
+  }
+
+  // State filtering
+  if (filters.state && filters.state.length > 0) {
+    const escapedStates = filters.state.map(state => `'${state.replace(/'/g, "''")}'`);
+    conditions.push(`State IN (${escapedStates.join(', ')})`);
+  }
+
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   return { where };
 }

@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Filter, X, Calendar, BarChart3, Users, Building, Link, Megaphone, ChevronDown, Check, RefreshCw, Settings2, SlidersHorizontal } from 'lucide-react';
+import { Filter, X, Calendar, BarChart3, Users, Building, Link, Megaphone, ChevronDown, Check, RefreshCw, Settings2, SlidersHorizontal, MapPin } from 'lucide-react';
 
 type DateRange = {
   start: string;
@@ -110,11 +110,13 @@ export default function Home() {
     projectType: string[];
     utmSource: string[];
     campaign: string[];
+    state: string[];
   }>({
     routeTo: [],
     projectType: [],
     utmSource: [],
-    campaign: []
+    campaign: [],
+    state: []
   });
 
   // Filter data by date range and column filters
@@ -183,6 +185,13 @@ export default function Home() {
       );
     }
     
+    // Apply State filter
+    if (columnFilters.state.length > 0) {
+      filtered = filtered.filter(item => 
+        columnFilters.state.includes(item.State)
+      );
+    }
+    
     return filtered;
   }, [allData, dateFilter, columnFilters]);
 
@@ -221,7 +230,7 @@ export default function Home() {
   // Calculate statistics
   const stats = useMemo(() => {
     const struxureLeads = filteredData.filter(item => item.Route_To === 'Struxure').length;
-    const deepwaterLeads = filteredData.filter(item => item.Route_To === 'Deep Water').length;
+    const deepwaterLeads = filteredData.filter(item => item.Route_To === 'Deep Water' || item.Route_To === 'Deepwater').length;
     const residentialLeads = filteredData.filter(item => item.Project_Type === 'Residential').length;
     const commercialLeads = filteredData.filter(item => item.Project_Type === 'Commercial').length;
     
@@ -259,7 +268,7 @@ export default function Home() {
     if (!compareData) return null;
     
     const struxureLeads = compareData.filter(item => item.Route_To === 'Struxure').length;
-    const deepwaterLeads = compareData.filter(item => item.Route_To === 'Deep Water').length;
+    const deepwaterLeads = compareData.filter(item => item.Route_To === 'Deep Water' || item.Route_To === 'Deepwater').length;
     const residentialLeads = compareData.filter(item => item.Project_Type === 'Residential').length;
     const commercialLeads = compareData.filter(item => item.Project_Type === 'Commercial').length;
     
@@ -319,7 +328,8 @@ export default function Home() {
       routeTo: [],
       projectType: [],
       utmSource: [],
-      campaign: []
+      campaign: [],
+      state: []
     });
   };
 
@@ -329,12 +339,13 @@ export default function Home() {
       routeTo: Array.from(new Set(allData.map(item => item.Route_To).filter(Boolean))).sort(),
       projectType: Array.from(new Set(allData.map(item => item.Project_Type).filter(Boolean))).sort(),
       utmSource: Array.from(new Set(allData.map(item => item.UTM_Source).filter(Boolean))).sort(),
-      campaign: Array.from(new Set(allData.map(item => item.Campaign).filter(Boolean))).sort().slice(0, 20) // Limit to top 20
+      campaign: Array.from(new Set(allData.map(item => item.Campaign).filter(Boolean))).sort().slice(0, 20), // Limit to top 20
+      state: Array.from(new Set(allData.map(item => item.State).filter(Boolean))).sort()
     };
   }, [allData]);
 
   const hasActiveFilters = dateFilter || columnFilters.routeTo.length > 0 || columnFilters.projectType.length > 0 || 
-    columnFilters.utmSource.length > 0 || columnFilters.campaign.length > 0;
+    columnFilters.utmSource.length > 0 || columnFilters.campaign.length > 0 || columnFilters.state.length > 0;
 
   const applyPresetFilter = (days: number) => {
     const end = new Date();
@@ -599,9 +610,9 @@ export default function Home() {
               >
                 <SlidersHorizontal className="w-5 h-5 mr-2" />
                 Column Filters
-                {(columnFilters.routeTo.length > 0 || columnFilters.projectType.length > 0 || columnFilters.utmSource.length > 0 || columnFilters.campaign.length > 0) && (
+                {(columnFilters.routeTo.length > 0 || columnFilters.projectType.length > 0 || columnFilters.utmSource.length > 0 || columnFilters.campaign.length > 0 || columnFilters.state.length > 0) && (
                   <Badge className="ml-2 bg-cyan-500/20 text-cyan-300 border-cyan-500/30">
-                    {columnFilters.routeTo.length + columnFilters.projectType.length + columnFilters.utmSource.length + columnFilters.campaign.length}
+                    {columnFilters.routeTo.length + columnFilters.projectType.length + columnFilters.utmSource.length + columnFilters.campaign.length + columnFilters.state.length}
                   </Badge>
                 )}
               </Button>
@@ -860,6 +871,66 @@ export default function Home() {
                   </Popover>
                 </div>
 
+                {/* State Filter */}
+                <div className="space-y-3">
+                  <Label className="flex items-center gap-2 text-base font-semibold text-white">
+                    <MapPin className="w-5 h-5 text-teal-400" />
+                    State
+                    {columnFilters.state.length > 0 && (
+                      <Badge variant="secondary" className="bg-teal-500/20 text-teal-300">
+                        {columnFilters.state.length}
+                      </Badge>
+                    )}
+                  </Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-between bg-slate-800/50 border-slate-600/50">
+                        {columnFilters.state.length > 0 
+                          ? `${columnFilters.state.length} selected` 
+                          : "Select State"}
+                        <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[400px] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search state..." />
+                        <CommandList>
+                          <CommandEmpty>No state found.</CommandEmpty>
+                          <CommandGroup>
+                            {filterOptions.state.map(option => {
+                              const count = allData.filter(item => item.State === option).length;
+                              const isSelected = columnFilters.state.includes(option);
+                              return (
+                                <CommandItem
+                                  key={option}
+                                  onSelect={() => {
+                                    if (isSelected) {
+                                      setColumnFilters(prev => ({ ...prev, state: prev.state.filter(item => item !== option) }));
+                                    } else {
+                                      setColumnFilters(prev => ({ ...prev, state: [...prev.state, option] }));
+                                    }
+                                  }}
+                                >
+                                  <div className="flex items-center gap-2 flex-1">
+                                    <Checkbox
+                                      checked={isSelected}
+                                      className="pointer-events-none"
+                                    />
+                                    <span className="flex-1">{option}</span>
+                                    <Badge variant="outline" className="text-xs">
+                                      {count.toLocaleString()}
+                                    </Badge>
+                                  </div>
+                                </CommandItem>
+                              );
+                            })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
                 {/* Active Filters Display */}
                 {hasActiveFilters && (
                   <div className="pt-6 border-t border-slate-700/50">
@@ -867,7 +938,7 @@ export default function Home() {
                       <Filter className="w-5 h-5 text-cyan-400" />
                       <h4 className="text-base font-semibold text-white">Active Filters</h4>
                       <Badge variant="secondary" className="bg-cyan-500/20 text-cyan-300">
-                        {columnFilters.routeTo.length + columnFilters.projectType.length + columnFilters.utmSource.length + columnFilters.campaign.length}
+                        {columnFilters.routeTo.length + columnFilters.projectType.length + columnFilters.utmSource.length + columnFilters.campaign.length + columnFilters.state.length}
                       </Badge>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -921,6 +992,20 @@ export default function Home() {
                             variant="ghost"
                             size="sm"
                             onClick={() => setColumnFilters(prev => ({ ...prev, campaign: prev.campaign.filter(f => f !== filter) }))}
+                            className="ml-2 h-auto p-0 hover:bg-transparent"
+                          >
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </Badge>
+                      ))}
+                      {columnFilters.state.map(filter => (
+                        <Badge key={filter} variant="secondary" className="bg-teal-500/20 text-teal-300 hover:bg-teal-500/30 transition-colors">
+                          <MapPin className="w-3 h-3 mr-1" />
+                          {filter}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setColumnFilters(prev => ({ ...prev, state: prev.state.filter(f => f !== filter) }))}
                             className="ml-2 h-auto p-0 hover:bg-transparent"
                           >
                             <X className="w-3 h-3" />
